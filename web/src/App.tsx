@@ -1,0 +1,150 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { api, money, setCsrf, signed, type FeedItem, type Market, type Portfolio, type Stock, type User } from "./api";
+import { AdminIcon, BoltIcon, ExchangeIcon, FeedIcon, PortfolioIcon, SparkIcon, TrophyIcon } from "./icons";
+import { AuthScreen } from "./components/AuthScreen";
+import { TradePanel } from "./components/TradePanel";
+import { AuraModal } from "./components/AuraModal";
+import { FeedView, Empty } from "./components/FeedView";
+import { AdminView } from "./components/AdminView";
+
+type Page = "exchange" | "feed" | "portfolio" | "leaders" | "admin";
+
+export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState<Page>("exchange");
+  const [market, setMarket] = useState<Market>({ stocks: [], auraComposite: 100, marketIndex: 100 });
+  const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
+  const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
+  const [auraOpen, setAuraOpen] = useState(false);
+  const [error, setError] = useState("");
+
+  const loadSession = useCallback(async () => {
+    try {
+      const result = await api<{ user: User }>("/api/auth/session");
+      setCsrf(result.user.csrfToken); setUser(result.user);
+    } catch { setUser(null); }
+    finally { setLoading(false); }
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (!user) return;
+    try {
+      const [marketData, portfolioData, feedData] = await Promise.all([
+        api<Market>("/api/market"), api<Portfolio>("/api/portfolio"), api<{ items: FeedItem[] }>("/api/feed")
+      ]);
+      setMarket(marketData); setPortfolio(portfolioData); setFeed(feedData.items); setError("");
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not refresh the exchange"); }
+  }, [user]);
+
+  useEffect(() => { loadSession(); }, [loadSession]);
+  useEffect(() => {
+    if (!user) return;
+    refresh();
+    const interval = window.setInterval(refresh, 15_000);
+    return () => window.clearInterval(interval);
+  }, [user, refresh]);
+
+  async function logout() {
+    await api("/api/auth/logout", { method: "POST" });
+    setUser(null); setMarket({ stocks: [], auraComposite: 100, marketIndex: 100 });
+  }
+
+  if (loading) return <div className="app-loading"><span className="brand-mark"><BoltIcon /></span><p>Opening the floor…</p></div>;
+  if (!user) return <AuthScreen onAuthenticated={loadSession} />;
+
+  const elevated = user.role === "OWNER" || user.role === "MODERATOR";
+  return <div className="app-shell">
+    <aside className="sidebar">
+      <div className="brand"><span className="brand-mark"><BoltIcon /></span><span>AURA<br/><b>EXCHANGE</b></span></div>
+      <nav>
+        <NavButton active={page==="exchange"} onClick={()=>setPage("exchange")} icon={<ExchangeIcon />} label="Exchange" />
+        <NavButton active={page==="feed"} onClick={()=>setPage("feed")} icon={<FeedIcon />} label="Global tape" badge={feed.filter((item)=>item.kind==="AURA_RULING").length || undefined} />
+        <NavButton active={page==="portfolio"} onClick={()=>setPage("portfolio")} icon={<PortfolioIcon />} label="Portfolio" />
+        <NavButton active={page==="leaders"} onClick={()=>setPage("leaders")} icon={<TrophyIcon />} label="Leaderboards" />
+        {elevated && <><div className="nav-divider"/><NavButton active={page==="admin"} onClick={()=>setPage("admin")} icon={<AdminIcon />} label="Operations" /></>}
+      </nav>
+      <div className="season-card"><span>SEASON 01</span><strong>Market is open</strong><div><i/><small>8-week competition</small></div></div>
+      <div className="sidebar-user"><span className="avatar small">{(user.displayName ?? user.username).slice(0,2).toUpperCase()}</span><span><b>{user.displayName ?? user.username}</b><small>{user.ticker ? `$${user.ticker}` : user.role}</small></span><button onClick={logout} title="Sign out">↗</button></div>
+    </aside>
+
+    <main className="main-stage">
+      <div className="mobile-top"><div className="brand"><span className="brand-mark"><BoltIcon /></span><b>AURA EXCHANGE</b></div><button className="button primary small" onClick={()=>setAuraOpen(true)}><SparkIcon/> File aura</button></div>
+      {error && <div className="system-error">{error}</div>}
+      {page === "exchange" && <ExchangePage market={market} portfolio={portfolio} onSelect={setSelectedStock} onAura={()=>setAuraOpen(true)} feed={feed.slice(0,4)} />}
+      {page === "feed" && <FeedView items={feed} ownStockId={user.stockId} onAuraClick={()=>setAuraOpen(true)} refresh={refresh} />}
+      {page === "portfolio" && <PortfolioPage portfolio={portfolio} onSelect={(id)=>setSelectedStock(market.stocks.find((stock)=>stock.id===id) ?? null)} />}
+      {page === "leaders" && <LeaderboardsPage />}
+      {page === "admin" && elevated && <AdminView />}
+    </main>
+
+    <nav className="mobile-nav">
+      <NavButton active={page==="exchange"} onClick={()=>setPage("exchange")} icon={<ExchangeIcon />} label="Market" />
+      <NavButton active={page==="feed"} onClick={()=>setPage("feed")} icon={<FeedIcon />} label="Tape" />
+      <NavButton active={page==="portfolio"} onClick={()=>setPage("portfolio")} icon={<PortfolioIcon />} label="Portfolio" />
+      <NavButton active={page==="leaders"} onClick={()=>setPage("leaders")} icon={<TrophyIcon />} label="Ranks" />
+    </nav>
+    {selectedStock && <TradePanel stock={selectedStock} portfolio={portfolio} ownStockId={user.stockId} onClose={()=>setSelectedStock(null)} onTraded={refresh} />}
+    {auraOpen && <AuraModal stocks={market.stocks} ownStockId={user.stockId} onClose={()=>setAuraOpen(false)} onSubmitted={refresh} />}
+  </div>;
+}
+
+function NavButton({ active, onClick, icon, label, badge }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string; badge?: number }) {
+  return <button className={active ? "nav-button active" : "nav-button"} onClick={onClick}>{icon}<span>{label}</span>{badge && <em>{badge}</em>}</button>;
+}
+
+function ExchangePage({ market, portfolio, onSelect, onAura, feed }: {
+  market: Market; portfolio: Portfolio | null; onSelect: (stock: Stock) => void; onAura: () => void; feed: FeedItem[];
+}) {
+  const sorted = useMemo(() => [...market.stocks].sort((a,b)=>b.dayChangePct-a.dayChangePct), [market.stocks]);
+  const top = sorted[0];
+  return <section className="page-content exchange-page">
+    <header className="page-heading"><div><p className="eyebrow">THURSDAY · MARKET OPEN</p><h1>Good evening, trader.</h1><p>The office is volatile. Position accordingly.</p></div><button className="button primary desktop-action" onClick={onAura}><SparkIcon /> File aura</button></header>
+    <div className="ticker-tape"><span className="live-dot">LIVE</span>{market.stocks.slice(0,7).map((stock)=><button key={stock.id} onClick={()=>onSelect(stock)}><b>${stock.ticker}</b><span>{money(stock.price)}</span><em className={stock.dayChangePct>=0?"positive":"negative"}>{signed(stock.dayChangePct,"%")}</em></button>)}</div>
+    <div className="metric-grid">
+      <MetricCard label="AURA COMPOSITE" value={market.auraComposite.toFixed(2)} change={market.auraComposite-100} caption="Collective office aura" accent="amber" />
+      <MetricCard label="MARKET INDEX" value={market.marketIndex.toFixed(2)} change={market.marketIndex-100} caption="Trader sentiment" accent="mint" />
+      <MetricCard label="YOUR EQUITY" value={`${money(portfolio?.equity ?? 0)} AC`} change={(portfolio?.equity ?? 10000)-10000} caption={`${money(portfolio?.cash ?? 0)} available`} accent="blue" />
+      <MetricCard label="TOP MOVER" value={top ? `$${top.ticker}` : "—"} change={top?.dayChangePct ?? 0} caption={top?.displayName ?? "Waiting for listings"} accent="coral" />
+    </div>
+    <div className="exchange-grid">
+      <section className="panel market-panel"><div className="panel-heading"><div><p className="eyebrow">ALL LISTINGS</p><h2>The board</h2></div><span>{market.stocks.length} active</span></div>
+        <div className="market-table"><div className="market-head"><span>Stock</span><span>Aura</span><span>Price</span><span>Today</span><span/></div>
+          {market.stocks.length===0 && <Empty icon={<ExchangeIcon/>} title="No active listings" text="Claim a stock or add someone in Operations."/>}
+          {market.stocks.map((stock)=><button className="market-row" key={stock.id} onClick={()=>onSelect(stock)}>
+            <span className="stock-identity"><i className="avatar">{stock.displayName.split(" ").map((p)=>p[0]).join("").slice(0,2)}</i><span><b>${stock.ticker}</b><small>{stock.displayName}</small></span></span>
+            <span className="aura-number"><SparkIcon/>{stock.aura}</span><b>{money(stock.price)}</b><span className={stock.dayChangePct>=0?"positive":"negative"}>{signed(stock.dayChangePct,"%")}</span><span className="trade-link">Trade →</span>
+          </button>)}
+        </div>
+      </section>
+      <section className="panel pulse-panel"><div className="panel-heading"><div><p className="eyebrow">MARKET PULSE</p><h2>Latest tape</h2></div><FeedIcon/></div>
+        <div className="mini-feed">{feed.length===0 && <p className="muted">Nothing on the tape yet.</p>}{feed.map((item)=><div key={item.id}><span className={`mini-icon ${item.kind==='AURA_RULING'?'aura':''}`}>{item.kind==='AURA_RULING'?<SparkIcon/>:<BoltIcon/>}</span><p>{item.kind==='AURA_RULING'?<><b>${item.subject?.ticker}</b> moved <strong className={Number(item.payload.delta)>=0?"positive":"negative"}>{Number(item.payload.delta)>=0?"+":""}{String(item.payload.delta)} aura</strong></>:item.kind==='TRADE'?<><b>{item.actor.displayName}</b> {String(item.payload.side).toLowerCase()}ed <strong>${item.subject?.ticker}</strong></>:<>{item.kind.replaceAll("_"," ").toLowerCase()}</>}<small>{new Date(item.createdAt).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}</small></p></div>)}</div>
+      </section>
+    </div>
+  </section>;
+}
+
+function MetricCard({ label, value, change, caption, accent }: { label:string; value:string; change:number; caption:string; accent:string }) {
+  return <article className={`metric-card ${accent}`}><span>{label}</span><strong>{value}</strong><div><em className={change>=0?"positive":"negative"}>{signed(change)}</em><small>{caption}</small></div><svg viewBox="0 0 120 38" preserveAspectRatio="none"><path d={change>=0?"M0 31 C18 27, 24 34, 38 24 S61 29, 74 17 S97 22,120 6":"M0 8 C18 12,24 5,38 15 S61 10,74 21 S97 18,120 33"}/></svg></article>;
+}
+
+function PortfolioPage({ portfolio, onSelect }: { portfolio: Portfolio | null; onSelect: (id:string)=>void }) {
+  return <section className="page-content"><header className="page-heading"><div><p className="eyebrow">YOUR BOOK</p><h1>Portfolio</h1><p>Long conviction, short skepticism, fully fictional consequences.</p></div></header>
+    <div className="portfolio-hero"><div><span>NET LIQUIDATION VALUE</span><strong>{money(portfolio?.equity ?? 0)} <small>AC</small></strong><em className={(portfolio?.equity ?? 10000)>=10000?"positive":"negative"}>{signed((portfolio?.equity??10000)-10000)} this season</em></div><div className="allocation"><span style={{"--size": `${Math.min(100,((portfolio?.longValue??0)/(portfolio?.equity||1))*100)}%`} as React.CSSProperties}/><p><b>{money(portfolio?.cash??0)}</b> cash<small>{money(portfolio?.longValue??0)} long · {money(portfolio?.shortLiability??0)} short</small></p></div></div>
+    <section className="panel"><div className="panel-heading"><div><p className="eyebrow">OPEN POSITIONS</p><h2>Exposure</h2></div></div>
+      <div className="positions-table">{!portfolio?.positions.length && <Empty icon={<PortfolioIcon/>} title="All cash" text="Open a listing from the exchange to make your first trade."/>}{portfolio?.positions.map((position)=><button key={position.id} onClick={()=>onSelect(position.stockId)}><span><b>${position.ticker}</b><small>{position.displayName}</small></span><span><small>{position.longQty>0?"LONG":"SHORT"}</small><b>{position.longQty||position.shortQty} shares</b></span><span><small>MARK</small><b>{money(position.price)} AC</b></span><span><small>UNREALIZED</small><b className={position.unrealizedPnl>=0?"positive":"negative"}>{signed(position.unrealizedPnl)} AC</b></span><em>Manage →</em></button>)}</div>
+    </section>
+  </section>;
+}
+
+function LeaderboardsPage() {
+  const [boards,setBoards]=useState<{aura:any[];wealth:any[]}>({aura:[],wealth:[]});
+  useEffect(()=>{api<{aura:any[];wealth:any[]}>("/api/leaderboards").then(setBoards)},[]);
+  return <section className="page-content"><header className="page-heading"><div><p className="eyebrow">THE STANDINGS</p><h1>Leaderboards</h1><p>Bragging rights expire at the closing bell.</p></div></header><div className="leader-grid">
+    <Board title="Aura elite" subtitle="Seasonal social index" rows={boards.aura.map((row)=>({name:row.display_name,ticker:row.ticker,value:`${row.seasonal_aura} AURA`}))}/>
+    <Board title="Market makers" subtitle="Marked portfolio equity" rows={boards.wealth.map((row)=>({name:row.display_name,ticker:row.ticker,value:`${money(Number(row.net_worth))} AC`}))}/>
+  </div></section>;
+}
+function Board({title,subtitle,rows}:{title:string;subtitle:string;rows:{name:string;ticker:string;value:string}[]}) { return <section className="panel board"><div className="panel-heading"><div><p className="eyebrow">{subtitle}</p><h2>{title}</h2></div><TrophyIcon/></div>{rows.map((row,index)=><div className="board-row" key={row.ticker}><strong>{String(index+1).padStart(2,"0")}</strong><span className="avatar small">{row.name.slice(0,2).toUpperCase()}</span><span><b>{row.name}</b><small>${row.ticker}</small></span><em>{row.value}</em></div>)}</section>; }
+

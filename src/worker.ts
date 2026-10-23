@@ -1,0 +1,336 @@
+import os from "node:os";
+import { Decimal } from "decimal.js";
+import { config } from "./config.js";
+import { pool, one, withTransaction } from "./db.js";
+import { processAuraSubmission } from "./services/aura-service.js";
+import { accounts, postLedgerTransaction } from "./core/ledger.js";
+import { auraComposite, marketIndex, quoteTrade } from "./core/market.js";
+
+interface JobRow { id: string; type: string; payload: Record<string, unknown>; attempts: number }
+const workerId = `${os.hostname()}:${process.pid}`;
+
+async function claimJob(): Promise<JobRow | null> {
+  return withTransaction(async (client) => {
+    const result = await client.query<JobRow>(
+      `SELECT id, type, payload, attempts FROM jobs
+        WHERE status='PENDING' AND run_after<=now()
+        ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1`
+    );
+    const job = result.rows[0];
+    if (!job) return null;
+    await client.query(
+      "UPDATE jobs SET status='RUNNING', attempts=attempts+1, locked_at=now(), locked_by=$1, updated_at=now() WHERE id=$2",
+      [workerId, job.id]
+    );
+    return job;
+  });
+}
+
+async function finishJob(job: JobRow, error?: unknown): Promise<void> {
+  if (!error) {
+    await pool.query("UPDATE jobs SET status='DONE', updated_at=now() WHERE id=$1", [job.id]);
+    return;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  if (job.attempts + 1 < 3) {
+    await pool.query(
+      `UPDATE jobs SET status='PENDING', run_after=now()+($2::text || ' seconds')::interval,
+         last_error=$3, locked_at=NULL, locked_by=NULL, updated_at=now() WHERE id=$1`,
+      [job.id, 2 ** (job.attempts + 1) * 10, message.slice(0, 1000)]
+    );
+  } else {
+    await pool.query("UPDATE jobs SET status='FAILED', last_error=$2, updated_at=now() WHERE id=$1", [job.id, message.slice(0, 1000)]);
+    if (job.type === "JUDGE_AURA" && typeof job.payload.submissionId === "string") {
+      await withTransaction(async (client) => {
+        await client.query(
+          `INSERT INTO aura_rulings(submission_id, verdict, delta, confidence, rationale, category, provider, model, requires_review)
+           VALUES ($1,'REVIEW',0,0,'The judge could not reach a reliable ruling.','SYSTEM','system','fallback',true)
+           ON CONFLICT DO NOTHING`, [job.payload.submissionId]
+        );
+        await client.query("UPDATE aura_submissions SET status='REVIEW', updated_at=now() WHERE id=$1", [job.payload.submissionId]);
+      });
+    }
+  }
+}
+
+function zonedParts(date = new Date()): Record<string, string> {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: config.TZ, year: "numeric", month: "2-digit", day: "2-digit", weekday: "short", hour: "2-digit", hourCycle: "h23"
+  }).formatToParts(date);
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+}
+
+async function runOnce(key: string, work: () => Promise<void>): Promise<void> {
+  const inserted = await pool.query(
+    "INSERT INTO scheduled_runs(key) VALUES ($1) ON CONFLICT DO NOTHING RETURNING key", [key]
+  );
+  if (!inserted.rowCount) return;
+  try {
+    await work();
+  } catch (error) {
+    await pool.query("DELETE FROM scheduled_runs WHERE key=$1", [key]);
+    throw error;
+  }
+}
+
+async function grantAllowance(dateKey: string): Promise<void> {
+  await withTransaction(async (client) => {
+    const season = await one<{ id: string }>(client, "SELECT id FROM seasons WHERE status='ACTIVE'");
+    const users = await client.query<{ id: string }>(
+      "SELECT u.id FROM users u JOIN person_stocks ps ON ps.owner_user_id=u.id WHERE ps.is_active=true"
+    );
+    for (const user of users.rows) {
+      await postLedgerTransaction(client, "WEEKLY_ALLOWANCE", `Weekly allowance ${dateKey}`, [
+        { accountKey: accounts.userCash(user.id, season.id), amount: 1000 },
+        { accountKey: accounts.issuance(season.id), amount: -1000 }
+      ], user.id);
+    }
+    await client.query(
+      "INSERT INTO feed_events(season_id, kind, payload) VALUES ($1,'ALLOWANCE', $2)",
+      [season.id, JSON.stringify({ amount: 1000, date: dateKey })]
+    );
+  });
+}
+
+async function settleDividends(dateKey: string): Promise<void> {
+  await withTransaction(async (client) => {
+    const season = await one<{ id: string }>(client, "SELECT id FROM seasons WHERE status='ACTIVE'");
+    const stocks = await client.query<{ id: string; aura_delta: number }>(
+      `SELECT ps.id, COALESCE(SUM(a.delta) FILTER (WHERE a.created_at>=now()-interval '7 days'),0)::int AS aura_delta
+         FROM person_stocks ps LEFT JOIN aura_ledger_entries a ON a.stock_id=ps.id AND a.season_id=$1
+        WHERE ps.is_active=true GROUP BY ps.id`, [season.id]
+    );
+    for (const stock of stocks.rows) {
+      const perShare = new Decimal(Math.max(0, stock.aura_delta)).mul("0.10");
+      await client.query(
+        `INSERT INTO dividend_settlements(season_id, stock_id, period_start, period_end, aura_delta, amount_per_share)
+         VALUES ($1,$2,now()-interval '7 days',now(),$3,$4)`,
+        [season.id, stock.id, stock.aura_delta, perShare.toFixed(8)]
+      );
+      if (perShare.isZero()) continue;
+      const positions = await client.query<{ user_id: string; long_qty: string; short_qty: string; short_proceeds:string; short_collateral:string }>(
+        "SELECT user_id,long_qty::text,short_qty::text,short_proceeds::text,short_collateral::text FROM positions WHERE season_id=$1 AND stock_id=$2", [season.id, stock.id]
+      );
+      for (const position of positions.rows) {
+        const longAmount = perShare.mul(position.long_qty);
+        if (longAmount.gt(0)) {
+          await postLedgerTransaction(client, "DIVIDEND", `Aura dividend ${dateKey}`, [
+            { accountKey: accounts.userCash(position.user_id, season.id), amount: longAmount },
+            { accountKey: accounts.issuance(season.id), amount: longAmount.negated() }
+          ], stock.id);
+        }
+        const shortAmount = perShare.mul(position.short_qty);
+        const shortCharge=Decimal.min(shortAmount,new Decimal(position.short_proceeds).plus(position.short_collateral));
+        if (shortCharge.gt(0)) {
+          await postLedgerTransaction(client, "DIVIDEND_OWED", `Short dividend owed ${dateKey}`, [
+            { accountKey: accounts.shortEscrow(position.user_id, stock.id, season.id), amount: shortCharge.negated() },
+            { accountKey: accounts.issuance(season.id), amount: shortCharge }
+          ], stock.id);
+          await client.query(
+            `UPDATE positions SET
+               short_proceeds=short_proceeds-GREATEST(0,$1-short_collateral),
+               short_collateral=GREATEST(0,short_collateral-$1),updated_at=now()
+              WHERE season_id=$2 AND stock_id=$3 AND user_id=$4`, [shortCharge.toFixed(8), season.id, stock.id, position.user_id]
+          );
+        }
+      }
+    }
+  });
+}
+
+async function chargeBorrowFees(dateKey: string): Promise<void> {
+  await withTransaction(async (client) => {
+    const rows = await client.query<{
+      id: string; season_id: string; user_id: string; stock_id: string; short_qty: string; short_collateral: string; short_proceeds: string; price: string;
+    }>(
+      `SELECT p.id,p.season_id,p.user_id,p.stock_id,p.short_qty::text,p.short_collateral::text,p.short_proceeds::text,
+              (mp.credit_reserve/mp.share_reserve)::text AS price
+         FROM positions p JOIN seasons s ON s.id=p.season_id AND s.status='ACTIVE'
+         JOIN market_pools mp ON mp.season_id=p.season_id AND mp.stock_id=p.stock_id WHERE p.short_qty>0`
+    );
+    for (const row of rows.rows) {
+      const available = new Decimal(row.short_collateral).plus(row.short_proceeds);
+      const fee = Decimal.min(available, new Decimal(row.short_qty).mul(row.price).mul("0.001"));
+      if (fee.lte(0)) continue;
+      await postLedgerTransaction(client, "BORROW_FEE", `Daily short borrow fee ${dateKey}`, [
+        { accountKey: accounts.shortEscrow(row.user_id, row.stock_id, row.season_id), amount: fee.negated() },
+        { accountKey: accounts.fees(row.season_id), amount: fee }
+      ], row.id);
+      await client.query(
+        `UPDATE positions SET short_proceeds=short_proceeds-GREATEST(0,$1-short_collateral),
+           short_collateral=GREATEST(0,short_collateral-$1),updated_at=now() WHERE id=$2`, [fee.toFixed(8), row.id]
+      );
+    }
+  });
+}
+
+async function liquidateUnsafeShorts(): Promise<void> {
+  const candidates = await pool.query<{ id: string }>(
+    `SELECT p.id FROM positions p JOIN seasons s ON s.id=p.season_id AND s.status='ACTIVE'
+      WHERE p.short_qty>0 ORDER BY p.updated_at LIMIT 25`
+  );
+  for (const candidate of candidates.rows) {
+    await withTransaction(async (client) => {
+      const position = await one<{
+        id:string;season_id:string;user_id:string;stock_id:string;short_qty:string;short_proceeds:string;short_collateral:string;
+      }>(client,"SELECT id,season_id,user_id,stock_id,short_qty::text,short_proceeds::text,short_collateral::text FROM positions WHERE id=$1 FOR UPDATE",[candidate.id]);
+      if (new Decimal(position.short_qty).lte(0)) return;
+      const market = await one<{ id:string;share_reserve:string;credit_reserve:string }>(client,
+        "SELECT id,share_reserve::text,credit_reserve::text FROM market_pools WHERE season_id=$1 AND stock_id=$2 FOR UPDATE",
+        [position.season_id,position.stock_id]
+      );
+      const totalQty=new Decimal(position.short_qty);
+      const totalAvailable=new Decimal(position.short_proceeds).plus(position.short_collateral);
+      const spotLiability=totalQty.mul(new Decimal(market.credit_reserve).div(market.share_reserve));
+      if (totalAvailable.div(spotLiability).gte("1.25")) return;
+      const liquidationQty=Decimal.min(totalQty,new Decimal(market.share_reserve).mul("0.10"));
+      const cover=quoteTrade({shareReserve:market.share_reserve,creditReserve:market.credit_reserve},"COVER",liquidationQty);
+      const ratio=liquidationQty.div(totalQty);
+      const allocatedProceeds=new Decimal(position.short_proceeds).mul(ratio);
+      const allocatedCollateral=new Decimal(position.short_collateral).mul(ratio);
+      const available=allocatedProceeds.plus(allocatedCollateral);
+      const gross=new Decimal(cover.grossAmount);
+      const fee=new Decimal(cover.feeAmount);
+      const total=new Decimal(cover.netAmount);
+      const refund=Decimal.max(0,available.minus(total));
+      const insurance=Decimal.max(0,total.minus(available));
+      const quoteId=crypto.randomUUID();
+      const tradeId=crypto.randomUUID();
+      await client.query(
+        `INSERT INTO trade_quotes(id,season_id,user_id,stock_id,side,quantity,gross_amount,fee_amount,net_amount,
+          execution_price,price_impact,reserve_version,expires_at,consumed_at)
+         VALUES ($1,$2,$3,$4,'COVER',$5,$6,$7,$8,$9,$10,$11,now(),now())`,
+        [quoteId,position.season_id,position.user_id,position.stock_id,cover.quantity,cover.grossAmount,cover.feeAmount,
+          cover.netAmount,cover.executionPrice,cover.priceImpact,cover.reserveVersion]
+      );
+      await postLedgerTransaction(client,"LIQUIDATE","Automatic maintenance-margin liquidation",[
+        {accountKey:accounts.poolCash(position.stock_id,position.season_id),amount:gross},
+        {accountKey:accounts.fees(position.season_id),amount:fee},
+        {accountKey:accounts.shortEscrow(position.user_id,position.stock_id,position.season_id),amount:available.negated()},
+        ...(refund.gt(0)?[{accountKey:accounts.userCash(position.user_id,position.season_id),amount:refund}]:[]),
+        ...(insurance.gt(0)?[{accountKey:accounts.issuance(position.season_id),amount:insurance.negated()}]:[])
+      ],tradeId);
+      await client.query(
+        `INSERT INTO trades(id,season_id,user_id,stock_id,quote_id,idempotency_key,side,quantity,gross_amount,fee_amount,execution_price)
+         VALUES ($1,$2,$3,$4,$5,$6,'LIQUIDATE',$7,$8,$9,$10)`,
+        [tradeId,position.season_id,position.user_id,position.stock_id,quoteId,`liquidate:${position.id}:${Date.now()}`,
+          cover.quantity,cover.grossAmount,cover.feeAmount,cover.executionPrice]
+      );
+      const remainingQty=totalQty.minus(liquidationQty);
+      await client.query(
+        `UPDATE positions SET short_qty=$1,avg_short_entry=CASE WHEN $1::numeric=0 THEN 0 ELSE avg_short_entry END,
+          short_proceeds=short_proceeds-$2,short_collateral=short_collateral-$3,updated_at=now() WHERE id=$4`,
+        [remainingQty.toFixed(8),allocatedProceeds.toFixed(8),allocatedCollateral.toFixed(8),position.id]
+      );
+      await client.query(
+        "UPDATE market_pools SET share_reserve=$1,credit_reserve=$2,updated_at=now() WHERE id=$3",
+        [cover.nextShareReserve,cover.nextCreditReserve,market.id]
+      );
+      await client.query(
+        `INSERT INTO feed_events(season_id,kind,actor_id,subject_stock_id,payload)
+         VALUES ($1,'LIQUIDATION',$2,$3,$4)`,
+        [position.season_id,position.user_id,position.stock_id,JSON.stringify({tradeId,quantity:cover.quantity,price:cover.executionPrice})]
+      );
+    });
+  }
+}
+
+async function snapshotIndices(): Promise<void> {
+  await withTransaction(async (client) => {
+    const seasonResult = await client.query<{ id: string }>("SELECT id FROM seasons WHERE status='ACTIVE'");
+    const season = seasonResult.rows[0];
+    if (!season) return;
+    const rows = await client.query<{ seasonal_aura: number; price: string; opening_price: string }>(
+      `SELECT ps.seasonal_aura,(mp.credit_reserve/mp.share_reserve)::text AS price,mp.opening_price::text
+         FROM person_stocks ps JOIN market_pools mp ON mp.stock_id=ps.id AND mp.season_id=$1 WHERE ps.is_active=true`, [season.id]
+    );
+    await client.query(
+      "INSERT INTO index_snapshots(season_id,aura_composite,market_index) VALUES ($1,$2,$3)",
+      [season.id, auraComposite(rows.rows.map((row) => row.seasonal_aura - 100)), marketIndex(rows.rows.map((row) => new Decimal(row.price).div(row.opening_price)))]
+    );
+  });
+}
+
+async function closeExpiredSeason(): Promise<void> {
+  await withTransaction(async (client) => {
+    const expired = await client.query<{ id: string; season_number: number }>(
+      "SELECT id,season_number FROM seasons WHERE status='ACTIVE' AND ends_at<=now() FOR UPDATE"
+    );
+    const old = expired.rows[0];
+    if (!old) return;
+    await client.query("UPDATE seasons SET status='CLOSED',closed_at=now() WHERE id=$1", [old.id]);
+    const next = await one<{ id: string }>(client,
+      `INSERT INTO seasons(season_number,name,starts_at,ends_at) VALUES ($1,$2,now(),now()+interval '8 weeks') RETURNING id`,
+      [old.season_number + 1, `Season ${old.season_number + 1}`]
+    );
+    await client.query("UPDATE person_stocks SET seasonal_aura=100 WHERE is_active=true");
+    const users = await client.query<{ user_id: string; stock_id: string }>(
+      "SELECT owner_user_id AS user_id,id AS stock_id FROM person_stocks WHERE is_active=true AND owner_user_id IS NOT NULL"
+    );
+    for (const user of users.rows) {
+      await client.query("INSERT INTO market_pools(season_id,stock_id) VALUES ($1,$2)", [next.id, user.stock_id]);
+      await postLedgerTransaction(client, "SEASON_GRANT", "New season balance", [
+        { accountKey: accounts.userCash(user.user_id, next.id), amount: 10_000 },
+        { accountKey: accounts.issuance(next.id), amount: -10_000 }
+      ], user.user_id);
+    }
+    await client.query("INSERT INTO feed_events(season_id,kind,payload) VALUES ($1,'SEASON_STARTED',$2)", [next.id, JSON.stringify({ seasonNumber: old.season_number + 1 })]);
+  });
+}
+
+async function runSchedulers(): Promise<void> {
+  const parts = zonedParts();
+  const dateKey = `${parts.year}-${parts.month}-${parts.day}`;
+  const fiveMinuteKey = Math.floor(Date.now() / 300_000);
+  const minuteKey = Math.floor(Date.now() / 60_000);
+  await runOnce(`indices:${fiveMinuteKey}`, snapshotIndices);
+  await runOnce(`liquidations:${minuteKey}`, liquidateUnsafeShorts);
+  await runOnce(`season-check:${dateKey}:${parts.hour}`, closeExpiredSeason);
+  if (parts.weekday === "Mon" && Number(parts.hour) >= 9) {
+    await runOnce(`allowance:${dateKey}`, () => grantAllowance(dateKey));
+    await runOnce(`dividends:${dateKey}`, () => settleDividends(dateKey));
+  }
+  if (Number(parts.hour) >= 0) {
+    await runOnce(`borrow-fees:${dateKey}`, () => chargeBorrowFees(dateKey));
+    await runOnce(`market-open:${dateKey}`, async () => {
+      await pool.query("UPDATE market_pools SET day_open_price=credit_reserve/share_reserve, halted_until=NULL WHERE season_id IN (SELECT id FROM seasons WHERE status='ACTIVE')");
+    });
+  }
+}
+
+async function processJob(job: JobRow): Promise<void> {
+  if (job.type === "JUDGE_AURA" && typeof job.payload.submissionId === "string") {
+    await processAuraSubmission(job.payload.submissionId);
+    return;
+  }
+  throw new Error(`Unknown job type ${job.type}`);
+}
+
+async function main(): Promise<void> {
+  console.log(`Aura worker ${workerId} started`);
+  for (;;) {
+    await pool.query(
+      `INSERT INTO system_state(key,value,updated_at) VALUES ('worker_heartbeat',$1,now())
+       ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()`, [JSON.stringify({ workerId })]
+    );
+    await runSchedulers();
+    const job = await claimJob();
+    if (!job) {
+      await new Promise((resolve) => setTimeout(resolve, config.WORKER_POLL_MS));
+      continue;
+    }
+    try {
+      await processJob(job);
+      await finishJob(job);
+    } catch (error) {
+      console.error(`Job ${job.id} failed`, error);
+      await finishJob(job, error);
+    }
+  }
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+

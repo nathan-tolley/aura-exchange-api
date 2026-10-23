@@ -1,0 +1,6 @@
+allowBuilds:
+  argon2: true
+  esbuild: true
+minimumReleaseAgeExclude:
+  - '@fastify/multipart@10.1.6'
+  - openai@7.43.0
