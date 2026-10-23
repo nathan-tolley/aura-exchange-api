@@ -15,15 +15,20 @@ export async function postLedgerTransaction(
   referenceId?: string
 ): Promise<string> {
   if (postings.length < 2) throw new Error("A ledger transaction needs at least two postings");
-  const total = postings.reduce<Decimal>((sum, item) => sum.plus(item.amount), new Decimal(0));
-  if (!total.abs().lt("0.00000001")) throw new Error(`Unbalanced ledger transaction: ${total.toString()}`);
+  const normalized = postings.map((item) => ({ ...item, amount: new Decimal(item.amount).toDecimalPlaces(8) }));
+  const total = normalized.reduce<Decimal>((sum, item) => sum.plus(item.amount), new Decimal(0));
+  if (total.abs().gt("0.00000005")) throw new Error(`Unbalanced ledger transaction: ${total.toString()}`);
+  if (!total.isZero()) {
+    const last = normalized.at(-1)!;
+    last.amount = new Decimal(last.amount).minus(total);
+  }
 
   const transactionId = randomUUID();
   await client.query(
     "INSERT INTO ledger_transactions(id, kind, reference_id, description) VALUES ($1, $2, $3, $4)",
     [transactionId, kind, referenceId ?? null, description]
   );
-  for (const posting of postings) {
+  for (const posting of normalized) {
     await client.query(
       "INSERT INTO cash_ledger_entries(transaction_id, account_key, amount) VALUES ($1, $2, $3)",
       [transactionId, posting.accountKey, new Decimal(posting.amount).toFixed(8)]
@@ -44,6 +49,7 @@ export const accounts = {
   userCash: (userId: string, seasonId: string) => `USER:${userId}:CASH:${seasonId}`,
   poolCash: (stockId: string, seasonId: string) => `POOL:${stockId}:CASH:${seasonId}`,
   shortEscrow: (userId: string, stockId: string, seasonId: string) => `ESCROW:${userId}:${stockId}:${seasonId}`,
+  limitEscrow: (orderId: string, seasonId: string) => `LIMIT:${orderId}:CASH:${seasonId}`,
   fees: (seasonId: string) => `SYSTEM:FEES:${seasonId}`,
   issuance: (seasonId: string) => `SYSTEM:ISSUANCE:${seasonId}`
 };

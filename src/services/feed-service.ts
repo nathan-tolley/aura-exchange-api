@@ -1,4 +1,5 @@
 import type { Role } from "../types.js";
+import { effectiveAuraDelta, type AuraVote } from "../core/aura-voting.js";
 
 export interface FeedRow {
   id: string;
@@ -11,6 +12,10 @@ export interface FeedRow {
   actor_ticker: string | null;
   subject_name: string | null;
   subject_ticker: string | null;
+  upvotes: number;
+  downvotes: number;
+  vote_score: number;
+  viewer_vote: number;
 }
 
 export function serializeFeedEvent(row: FeedRow, viewer: { role: Role; stockId: string | null }) {
@@ -18,6 +23,12 @@ export function serializeFeedEvent(row: FeedRow, viewer: { role: Role; stockId: 
   const canRevealAuraAuthor = elevated || row.subject_stock_id === viewer.stockId;
   const payload = { ...row.payload };
   if (row.kind === "AURA_RULING" && !canRevealAuraAuthor) delete payload.authorId;
+  const votes = row.kind === "AURA_RULING" ? {
+    up: row.upvotes,
+    down: row.downvotes,
+    viewerVote: row.viewer_vote as AuraVote,
+    effectiveDelta: effectiveAuraDelta(String(payload.delta ?? 0), row.vote_score)
+  } : undefined;
   return {
     id: row.id,
     kind: row.kind,
@@ -30,7 +41,8 @@ export function serializeFeedEvent(row: FeedRow, viewer: { role: Role; stockId: 
     actor: row.kind === "AURA_RULING" && !canRevealAuraAuthor
       ? { displayName: "Anonymous", ticker: null }
       : { displayName: row.actor_name ?? "System", ticker: row.actor_ticker },
-    payload
+    payload,
+    votes
   };
 }
 

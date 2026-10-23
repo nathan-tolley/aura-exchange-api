@@ -26,6 +26,9 @@ services:
       PORT: 8787
       DATABASE_URL: postgres://aura:${POSTGRES_PASSWORD}@postgres:5432/aura_exchange
       APP_ORIGIN: ${APP_ORIGIN:-http://localhost}
+      CHATGPT_CALLBACK_URL: http://127.0.0.1:1455/auth/callback
+    ports:
+      - "127.0.0.1:1455:8787"
     volumes:
       - uploads:/app/uploads
       - ./backups:/app/backups

@@ -16,6 +16,9 @@ import { registerTradeRoutes } from "./routes/trade-routes.js";
 import { registerReadRoutes } from "./routes/read-routes.js";
 import { registerAdminRoutes } from "./routes/admin-routes.js";
 import { registerProfileRoutes } from "./routes/profile-routes.js";
+import { registerVoteRoutes } from "./routes/vote-routes.js";
+import { registerChatGPTRoutes } from "./routes/chatgpt-routes.js";
+import { registerAuraFarmingRoutes } from "./routes/aura-farming-routes.js";
 
 const app = Fastify({ logger: { level: isProduction ? "info" : "debug" }, trustProxy: true });
 
@@ -27,7 +30,8 @@ await app.register(helmet, {
       scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:"],
-      connectSrc: ["'self'"]
+      connectSrc: ["'self'"],
+      upgradeInsecureRequests: new URL(config.APP_ORIGIN).protocol === "https:" ? [] : null
     }
   },
   referrerPolicy: { policy: "no-referrer" }
@@ -48,6 +52,9 @@ await registerTradeRoutes(app);
 await registerReadRoutes(app);
 await registerAdminRoutes(app);
 await registerProfileRoutes(app);
+await registerVoteRoutes(app);
+await registerChatGPTRoutes(app);
+await registerAuraFarmingRoutes(app);
 
 const uploadRoot = path.resolve("uploads");
 await app.register(fastifyStatic, { root: uploadRoot, prefix: "/uploads/", decorateReply: false });

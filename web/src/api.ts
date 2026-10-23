@@ -30,6 +30,7 @@ export interface FeedItem {
   actor: { displayName: string; ticker: string | null };
   subject: { id: string; displayName: string; ticker: string } | null;
   payload: Record<string, unknown>;
+  votes?: { up: number; down: number; viewerVote: -1 | 0 | 1; effectiveDelta: number };
 }
 
 export interface Position {

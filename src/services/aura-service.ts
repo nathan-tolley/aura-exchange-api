@@ -53,7 +53,10 @@ export async function applyAuraEntry(
   );
 }
 
-export async function processAuraSubmission(submissionId: string): Promise<void> {
+export async function processAuraSubmission(
+  submissionId: string,
+  options: { finalReconsideration?: boolean; priorRuling?: { verdict: "GAIN"|"LOSS"|"NEUTRAL"|"REVIEW"; delta: number; rationale: string } } = {}
+): Promise<void> {
   const submission = await withTransaction(async (client) => {
     const row = await one<SubmissionRow>(client,
       "SELECT * FROM aura_submissions WHERE id = $1 FOR UPDATE", [submissionId]
@@ -69,14 +72,20 @@ export async function processAuraSubmission(submissionId: string): Promise<void>
       WHERE position(lower(phrase::text) in lower($1)) > 0 LIMIT 8`, [submission.explanation]
   ));
 
-  const judge = createAuraJudge();
+  const judge = await createAuraJudge();
   const result = await judge.judge({
     subjectKey: `stock_${submission.subject_stock_id.slice(0, 8)}`,
     explanation: submission.explanation,
-    glossary: glossaryResult.rows
+    glossary: glossaryResult.rows,
+    reconsideration: options.priorRuling ? {
+      priorVerdict: options.priorRuling.verdict,
+      priorDelta: options.priorRuling.delta,
+      priorRationale: options.priorRuling.rationale
+    } : undefined
   });
   const hasHardFlag = result.policyFlags.some((flag) => hardFlags.has(flag));
-  const requiresReview = hasHardFlag || result.verdict === "REVIEW" || Math.abs(result.delta) > 5 || result.confidence < 0.75;
+  const isMajorSwing = Math.abs(result.delta) > 15;
+  const requiresReview = hasHardFlag || result.verdict === "REVIEW" || result.confidence < 0.75;
 
   await withTransaction(async (client) => {
     const current = await one<SubmissionRow>(client,
@@ -93,6 +102,12 @@ export async function processAuraSubmission(submissionId: string): Promise<void>
     );
     if (requiresReview) {
       await client.query("UPDATE aura_submissions SET status = 'REVIEW', updated_at = now() WHERE id = $1", [submission.id]);
+    } else if (isMajorSwing && !options.finalReconsideration) {
+      await client.query(
+        `INSERT INTO aura_swing_polls(submission_id,ruling_id) VALUES ($1,$2)`,
+        [submission.id, ruling.id]
+      );
+      await client.query("UPDATE aura_submissions SET status='FARMING',updated_at=now() WHERE id=$1", [submission.id]);
     } else {
       await applyAuraEntry(client, submission, ruling.id, result.delta, result.rationale);
     }

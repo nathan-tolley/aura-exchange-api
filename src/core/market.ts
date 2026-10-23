@@ -100,3 +100,8 @@ export function marketIndex(priceRatios: Decimal.Value[]): number {
   return total.div(priceRatios.length).mul(100).toNumber();
 }
 
+export function marketAuraAdjustment(side: TradeSide, grossAmount: Decimal.Value): Decimal {
+  const magnitude = Decimal.min(new Decimal(grossAmount).abs().div(1000), 10).toDecimalPlaces(2);
+  return side === "BUY" || side === "COVER" ? magnitude : magnitude.negated();
+}
+

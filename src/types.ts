@@ -16,6 +16,7 @@ export interface AuraJudgeInput {
   subjectKey: string;
   explanation: string;
   glossary: Array<{ phrase: string; explanation: string }>;
+  reconsideration?: { priorVerdict: AuraVerdict; priorDelta: number; priorRationale: string };
 }
 
 export interface AuraJudgeResult {

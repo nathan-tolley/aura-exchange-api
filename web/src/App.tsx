@@ -6,8 +6,10 @@ import { TradePanel } from "./components/TradePanel";
 import { AuraModal } from "./components/AuraModal";
 import { FeedView, Empty } from "./components/FeedView";
 import { AdminView } from "./components/AdminView";
+import { StockHistoryPanel } from "./components/StockHistoryPanel";
+import { AuraFarmingView } from "./components/AuraFarmingView";
 
-type Page = "exchange" | "feed" | "portfolio" | "leaders" | "admin";
+type Page = "exchange" | "feed" | "farming" | "portfolio" | "leaders" | "admin";
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -19,6 +21,16 @@ export default function App() {
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
   const [auraOpen, setAuraOpen] = useState(false);
   const [error, setError] = useState("");
+  const [targetFeedId, setTargetFeedId] = useState<string | null>(null);
+
+  const openFeedEvent = useCallback((eventId: string) => { setTargetFeedId(eventId); setPage("feed"); }, []);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("chatgpt") !== "connected") return;
+    window.opener?.postMessage({ type: "aura-chatgpt-connected" }, window.location.origin);
+    if (window.opener) window.close();
+    else { setPage("admin"); window.history.replaceState({}, "", "/"); }
+  }, []);
 
   const loadSession = useCallback(async () => {
     try {
@@ -61,6 +73,7 @@ export default function App() {
       <nav>
         <NavButton active={page==="exchange"} onClick={()=>setPage("exchange")} icon={<ExchangeIcon />} label="Exchange" />
         <NavButton active={page==="feed"} onClick={()=>setPage("feed")} icon={<FeedIcon />} label="Global tape" badge={feed.filter((item)=>item.kind==="AURA_RULING").length || undefined} />
+        <NavButton active={page==="farming"} onClick={()=>setPage("farming")} icon={<SparkIcon />} label="Aura Farming" />
         <NavButton active={page==="portfolio"} onClick={()=>setPage("portfolio")} icon={<PortfolioIcon />} label="Portfolio" />
         <NavButton active={page==="leaders"} onClick={()=>setPage("leaders")} icon={<TrophyIcon />} label="Leaderboards" />
         {elevated && <><div className="nav-divider"/><NavButton active={page==="admin"} onClick={()=>setPage("admin")} icon={<AdminIcon />} label="Operations" /></>}
@@ -72,8 +85,9 @@ export default function App() {
     <main className="main-stage">
       <div className="mobile-top"><div className="brand"><span className="brand-mark"><BoltIcon /></span><b>AURA EXCHANGE</b></div><button className="button primary small" onClick={()=>setAuraOpen(true)}><SparkIcon/> File aura</button></div>
       {error && <div className="system-error">{error}</div>}
-      {page === "exchange" && <ExchangePage market={market} portfolio={portfolio} onSelect={setSelectedStock} onAura={()=>setAuraOpen(true)} feed={feed.slice(0,4)} />}
-      {page === "feed" && <FeedView items={feed} ownStockId={user.stockId} onAuraClick={()=>setAuraOpen(true)} refresh={refresh} />}
+      {page === "exchange" && <ExchangePage market={market} portfolio={portfolio} onSelect={setSelectedStock} onAura={()=>setAuraOpen(true)} feed={feed.slice(0,4)} onOpenFeedEvent={openFeedEvent} />}
+      {page === "feed" && <FeedView items={feed} ownStockId={user.stockId} onAuraClick={()=>setAuraOpen(true)} refresh={refresh} targetEventId={targetFeedId} onTargetHandled={()=>setTargetFeedId(null)} />}
+      {page === "farming" && <AuraFarmingView ownStockId={user.stockId} onReward={refresh} />}
       {page === "portfolio" && <PortfolioPage portfolio={portfolio} onSelect={(id)=>setSelectedStock(market.stocks.find((stock)=>stock.id===id) ?? null)} />}
       {page === "leaders" && <LeaderboardsPage />}
       {page === "admin" && elevated && <AdminView />}
@@ -82,6 +96,7 @@ export default function App() {
     <nav className="mobile-nav">
       <NavButton active={page==="exchange"} onClick={()=>setPage("exchange")} icon={<ExchangeIcon />} label="Market" />
       <NavButton active={page==="feed"} onClick={()=>setPage("feed")} icon={<FeedIcon />} label="Tape" />
+      <NavButton active={page==="farming"} onClick={()=>setPage("farming")} icon={<SparkIcon />} label="Farm" />
       <NavButton active={page==="portfolio"} onClick={()=>setPage("portfolio")} icon={<PortfolioIcon />} label="Portfolio" />
       <NavButton active={page==="leaders"} onClick={()=>setPage("leaders")} icon={<TrophyIcon />} label="Ranks" />
     </nav>
@@ -94,10 +109,11 @@ function NavButton({ active, onClick, icon, label, badge }: { active: boolean; o
   return <button className={active ? "nav-button active" : "nav-button"} onClick={onClick}>{icon}<span>{label}</span>{badge && <em>{badge}</em>}</button>;
 }
 
-function ExchangePage({ market, portfolio, onSelect, onAura, feed }: {
-  market: Market; portfolio: Portfolio | null; onSelect: (stock: Stock) => void; onAura: () => void; feed: FeedItem[];
+function ExchangePage({ market, portfolio, onSelect, onAura, feed, onOpenFeedEvent }: {
+  market: Market; portfolio: Portfolio | null; onSelect: (stock: Stock) => void; onAura: () => void; feed: FeedItem[]; onOpenFeedEvent: (eventId: string) => void;
 }) {
   const sorted = useMemo(() => [...market.stocks].sort((a,b)=>b.dayChangePct-a.dayChangePct), [market.stocks]);
+  const [expandedStockId, setExpandedStockId] = useState<string | null>(null);
   const top = sorted[0];
   return <section className="page-content exchange-page">
     <header className="page-heading"><div><p className="eyebrow">THURSDAY · MARKET OPEN</p><h1>Good evening, trader.</h1><p>The office is volatile. Position accordingly.</p></div><button className="button primary desktop-action" onClick={onAura}><SparkIcon /> File aura</button></header>
@@ -112,14 +128,17 @@ function ExchangePage({ market, portfolio, onSelect, onAura, feed }: {
       <section className="panel market-panel"><div className="panel-heading"><div><p className="eyebrow">ALL LISTINGS</p><h2>The board</h2></div><span>{market.stocks.length} active</span></div>
         <div className="market-table"><div className="market-head"><span>Stock</span><span>Aura</span><span>Price</span><span>Today</span><span/></div>
           {market.stocks.length===0 && <Empty icon={<ExchangeIcon/>} title="No active listings" text="Claim a stock or add someone in Operations."/>}
-          {market.stocks.map((stock)=><button className="market-row" key={stock.id} onClick={()=>onSelect(stock)}>
-            <span className="stock-identity"><i className="avatar">{stock.displayName.split(" ").map((p)=>p[0]).join("").slice(0,2)}</i><span><b>${stock.ticker}</b><small>{stock.displayName}</small></span></span>
-            <span className="aura-number"><SparkIcon/>{stock.aura}</span><b>{money(stock.price)}</b><span className={stock.dayChangePct>=0?"positive":"negative"}>{signed(stock.dayChangePct,"%")}</span><span className="trade-link">Trade →</span>
-          </button>)}
+          {market.stocks.map((stock)=><div className="stock-listing" key={stock.id}>
+            <div className="market-row" role="button" tabIndex={0} aria-expanded={expandedStockId===stock.id} onClick={()=>setExpandedStockId(expandedStockId===stock.id?null:stock.id)} onKeyDown={(event)=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();setExpandedStockId(expandedStockId===stock.id?null:stock.id)}}}>
+              <span className="stock-identity"><i className="avatar">{stock.displayName.split(" ").map((p)=>p[0]).join("").slice(0,2)}</i><span><b>${stock.ticker}</b><small>{stock.displayName} · {expandedStockId===stock.id?"Hide chart":"View chart"}</small></span></span>
+              <span className="aura-number"><SparkIcon/>{stock.aura}</span><b>{money(stock.price)}</b><span className={stock.dayChangePct>=0?"positive":"negative"}>{signed(stock.dayChangePct,"%")}</span><button className="trade-link" onClick={(event)=>{event.stopPropagation();onSelect(stock)}}>Trade →</button>
+            </div>
+            {expandedStockId===stock.id && <StockHistoryPanel stockId={stock.id} onOpenFeedEvent={onOpenFeedEvent}/>} 
+          </div>)}
         </div>
       </section>
       <section className="panel pulse-panel"><div className="panel-heading"><div><p className="eyebrow">MARKET PULSE</p><h2>Latest tape</h2></div><FeedIcon/></div>
-        <div className="mini-feed">{feed.length===0 && <p className="muted">Nothing on the tape yet.</p>}{feed.map((item)=><div key={item.id}><span className={`mini-icon ${item.kind==='AURA_RULING'?'aura':''}`}>{item.kind==='AURA_RULING'?<SparkIcon/>:<BoltIcon/>}</span><p>{item.kind==='AURA_RULING'?<><b>${item.subject?.ticker}</b> moved <strong className={Number(item.payload.delta)>=0?"positive":"negative"}>{Number(item.payload.delta)>=0?"+":""}{String(item.payload.delta)} aura</strong></>:item.kind==='TRADE'?<><b>{item.actor.displayName}</b> {String(item.payload.side).toLowerCase()}ed <strong>${item.subject?.ticker}</strong></>:<>{item.kind.replaceAll("_"," ").toLowerCase()}</>}<small>{new Date(item.createdAt).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}</small></p></div>)}</div>
+        <div className="mini-feed">{feed.length===0 && <p className="muted">Nothing on the tape yet.</p>}{feed.map((item)=>{const delta=item.votes?.effectiveDelta??Number(item.payload.delta);return <div key={item.id}><span className={`mini-icon ${item.kind==='AURA_RULING'?'aura':''}`}>{item.kind==='AURA_RULING'?<SparkIcon/>:<BoltIcon/>}</span><p>{item.kind==='AURA_RULING'?<><b>${item.subject?.ticker}</b> moved <strong className={delta>=0?"positive":"negative"}>{delta>=0?"+":""}{delta} aura</strong></>:item.kind==='TRADE'?<><b>{item.actor.displayName}</b> {String(item.payload.side).toLowerCase()}ed <strong>${item.subject?.ticker}</strong></>:<>{item.kind.replaceAll("_"," ").toLowerCase()}</>}<small>{new Date(item.createdAt).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}</small></p></div>})}</div>
       </section>
     </div>
   </section>;

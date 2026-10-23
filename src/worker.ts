@@ -1,10 +1,13 @@
 import os from "node:os";
+import { randomInt } from "node:crypto";
 import { Decimal } from "decimal.js";
 import { config } from "./config.js";
 import { pool, one, withTransaction } from "./db.js";
 import { processAuraSubmission } from "./services/aura-service.js";
 import { accounts, postLedgerTransaction } from "./core/ledger.js";
 import { auraComposite, marketIndex, quoteTrade } from "./core/market.js";
+import { resolveExpiredAuraFarming } from "./services/aura-farming-service.js";
+import { processOpenLimitOrders } from "./services/limit-order-service.js";
 
 interface JobRow { id: string; type: string; payload: Record<string, unknown>; attempts: number }
 const workerId = `${os.hostname()}:${process.pid}`;
@@ -28,28 +31,36 @@ async function claimJob(): Promise<JobRow | null> {
 
 async function finishJob(job: JobRow, error?: unknown): Promise<void> {
   if (!error) {
-    await pool.query("UPDATE jobs SET status='DONE', updated_at=now() WHERE id=$1", [job.id]);
+    await pool.query("UPDATE jobs SET status='DONE', last_error=NULL, updated_at=now() WHERE id=$1", [job.id]);
     return;
   }
   const message = error instanceof Error ? error.message : String(error);
   if (job.attempts + 1 < 3) {
-    await pool.query(
-      `UPDATE jobs SET status='PENDING', run_after=now()+($2::text || ' seconds')::interval,
-         last_error=$3, locked_at=NULL, locked_by=NULL, updated_at=now() WHERE id=$1`,
-      [job.id, 2 ** (job.attempts + 1) * 10, message.slice(0, 1000)]
-    );
+    await withTransaction(async (client) => {
+      await client.query(
+        `UPDATE jobs SET status='PENDING', run_after=now()+($2::text || ' seconds')::interval,
+           last_error=$3, locked_at=NULL, locked_by=NULL, updated_at=now() WHERE id=$1`,
+        [job.id, 2 ** (job.attempts + 1) * 10, message.slice(0, 1000)]
+      );
+      if (job.type === "JUDGE_AURA" && typeof job.payload.submissionId === "string") {
+        await client.query(
+          "UPDATE aura_submissions SET status='FAILED', updated_at=now() WHERE id=$1 AND status='JUDGING'",
+          [job.payload.submissionId]
+        );
+      }
+    });
   } else {
-    await pool.query("UPDATE jobs SET status='FAILED', last_error=$2, updated_at=now() WHERE id=$1", [job.id, message.slice(0, 1000)]);
-    if (job.type === "JUDGE_AURA" && typeof job.payload.submissionId === "string") {
-      await withTransaction(async (client) => {
+    await withTransaction(async (client) => {
+      await client.query("UPDATE jobs SET status='FAILED', last_error=$2, updated_at=now() WHERE id=$1", [job.id, message.slice(0, 1000)]);
+      if (job.type === "JUDGE_AURA" && typeof job.payload.submissionId === "string") {
         await client.query(
           `INSERT INTO aura_rulings(submission_id, verdict, delta, confidence, rationale, category, provider, model, requires_review)
            VALUES ($1,'REVIEW',0,0,'The judge could not reach a reliable ruling.','SYSTEM','system','fallback',true)
            ON CONFLICT DO NOTHING`, [job.payload.submissionId]
         );
         await client.query("UPDATE aura_submissions SET status='REVIEW', updated_at=now() WHERE id=$1", [job.payload.submissionId]);
-      });
-    }
+      }
+    });
   }
 }
 
@@ -95,13 +106,13 @@ async function grantAllowance(dateKey: string): Promise<void> {
 async function settleDividends(dateKey: string): Promise<void> {
   await withTransaction(async (client) => {
     const season = await one<{ id: string }>(client, "SELECT id FROM seasons WHERE status='ACTIVE'");
-    const stocks = await client.query<{ id: string; aura_delta: number }>(
+    const stocks = await client.query<{ id: string; aura_delta: string }>(
       `SELECT ps.id, COALESCE(SUM(a.delta) FILTER (WHERE a.created_at>=now()-interval '7 days'),0)::int AS aura_delta
          FROM person_stocks ps LEFT JOIN aura_ledger_entries a ON a.stock_id=ps.id AND a.season_id=$1
         WHERE ps.is_active=true GROUP BY ps.id`, [season.id]
     );
     for (const stock of stocks.rows) {
-      const perShare = new Decimal(Math.max(0, stock.aura_delta)).mul("0.10");
+      const perShare = new Decimal(Math.max(0, Number(stock.aura_delta))).mul("0.25");
       await client.query(
         `INSERT INTO dividend_settlements(season_id, stock_id, period_start, period_end, aura_delta, amount_per_share)
          VALUES ($1,$2,now()-interval '7 days',now(),$3,$4)`,
@@ -222,9 +233,15 @@ async function liquidateUnsafeShorts(): Promise<void> {
           short_proceeds=short_proceeds-$2,short_collateral=short_collateral-$3,updated_at=now() WHERE id=$4`,
         [remainingQty.toFixed(8),allocatedProceeds.toFixed(8),allocatedCollateral.toFixed(8),position.id]
       );
+      const nextPrice = new Decimal(cover.nextCreditReserve).div(cover.nextShareReserve);
       await client.query(
-        "UPDATE market_pools SET share_reserve=$1,credit_reserve=$2,updated_at=now() WHERE id=$3",
-        [cover.nextShareReserve,cover.nextCreditReserve,market.id]
+        "UPDATE market_pools SET share_reserve=$1,credit_reserve=$2,organic_price=$3,ambient_deviation=0,updated_at=now() WHERE id=$4",
+        [cover.nextShareReserve,cover.nextCreditReserve,nextPrice.toFixed(8),market.id]
+      );
+      await client.query(
+        `INSERT INTO market_price_ticks(season_id,stock_id,price,cause,reference_id,is_synthetic)
+         VALUES ($1,$2,$3,'TRADE',$4,false)`,
+        [position.season_id,position.stock_id,nextPrice.toFixed(8),tradeId]
       );
       await client.query(
         `INSERT INTO feed_events(season_id,kind,actor_id,subject_stock_id,payload)
@@ -235,18 +252,52 @@ async function liquidateUnsafeShorts(): Promise<void> {
   }
 }
 
+async function applyAmbientMarketMotion(): Promise<void> {
+  await withTransaction(async (client) => {
+    const markets = await client.query<{
+      id: string; season_id: string; stock_id: string; share_reserve: string; credit_reserve: string;
+      organic_price: string; ambient_deviation: string;
+    }>(
+      `SELECT mp.id,mp.season_id,mp.stock_id,mp.share_reserve::text,mp.credit_reserve::text,
+              mp.organic_price::text,mp.ambient_deviation::text
+         FROM market_pools mp JOIN seasons s ON s.id=mp.season_id AND s.status='ACTIVE'
+        WHERE mp.halted_until IS NULL OR mp.halted_until<=now()
+        ORDER BY mp.id FOR UPDATE`
+    );
+    for (const market of markets.rows) {
+      const noise = new Decimal(randomInt(-1800, 1801)).div(1_000_000);
+      const randomWalk = new Decimal(market.ambient_deviation).plus(noise);
+      const deviation = Decimal.max("-0.03", Decimal.min("0.03", randomWalk));
+      const targetPrice = new Decimal(market.organic_price).mul(deviation.plus(1));
+      const invariant = new Decimal(market.share_reserve).mul(market.credit_reserve);
+      const nextShares = invariant.div(targetPrice).sqrt();
+      const nextCredits = invariant.mul(targetPrice).sqrt();
+      await client.query(
+        `UPDATE market_pools SET share_reserve=$1,credit_reserve=$2,ambient_deviation=$3,updated_at=now()
+          WHERE id=$4`,
+        [nextShares.toFixed(8),nextCredits.toFixed(8),deviation.toFixed(8),market.id]
+      );
+      await client.query(
+        `INSERT INTO market_price_ticks(season_id,stock_id,price,cause,is_synthetic)
+         VALUES ($1,$2,$3,'AMBIENT',true)`,
+        [market.season_id,market.stock_id,targetPrice.toFixed(8)]
+      );
+    }
+  });
+}
+
 async function snapshotIndices(): Promise<void> {
   await withTransaction(async (client) => {
     const seasonResult = await client.query<{ id: string }>("SELECT id FROM seasons WHERE status='ACTIVE'");
     const season = seasonResult.rows[0];
     if (!season) return;
-    const rows = await client.query<{ seasonal_aura: number; price: string; opening_price: string }>(
+    const rows = await client.query<{ seasonal_aura: string; price: string; opening_price: string }>(
       `SELECT ps.seasonal_aura,(mp.credit_reserve/mp.share_reserve)::text AS price,mp.opening_price::text
          FROM person_stocks ps JOIN market_pools mp ON mp.stock_id=ps.id AND mp.season_id=$1 WHERE ps.is_active=true`, [season.id]
     );
     await client.query(
       "INSERT INTO index_snapshots(season_id,aura_composite,market_index) VALUES ($1,$2,$3)",
-      [season.id, auraComposite(rows.rows.map((row) => row.seasonal_aura - 100)), marketIndex(rows.rows.map((row) => new Decimal(row.price).div(row.opening_price)))]
+      [season.id, auraComposite(rows.rows.map((row) => Number(row.seasonal_aura) - 100)), marketIndex(rows.rows.map((row) => new Decimal(row.price).div(row.opening_price)))]
     );
   });
 }
@@ -283,8 +334,12 @@ async function runSchedulers(): Promise<void> {
   const dateKey = `${parts.year}-${parts.month}-${parts.day}`;
   const fiveMinuteKey = Math.floor(Date.now() / 300_000);
   const minuteKey = Math.floor(Date.now() / 60_000);
+  const motionKey = Math.floor(Date.now() / 15_000);
+  await runOnce(`ambient-motion:${motionKey}`, applyAmbientMarketMotion);
+  await runOnce(`limit-orders:${motionKey}`, processOpenLimitOrders);
   await runOnce(`indices:${fiveMinuteKey}`, snapshotIndices);
   await runOnce(`liquidations:${minuteKey}`, liquidateUnsafeShorts);
+  await runOnce(`aura-farming:${minuteKey}`, resolveExpiredAuraFarming);
   await runOnce(`season-check:${dateKey}:${parts.hour}`, closeExpiredSeason);
   if (parts.weekday === "Mon" && Number(parts.hour) >= 9) {
     await runOnce(`allowance:${dateKey}`, () => grantAllowance(dateKey));
@@ -300,7 +355,11 @@ async function runSchedulers(): Promise<void> {
 
 async function processJob(job: JobRow): Promise<void> {
   if (job.type === "JUDGE_AURA" && typeof job.payload.submissionId === "string") {
-    await processAuraSubmission(job.payload.submissionId);
+    const prior=job.payload.priorRuling as {verdict:"GAIN"|"LOSS"|"NEUTRAL"|"REVIEW";delta:number;rationale:string}|undefined;
+    await processAuraSubmission(job.payload.submissionId,{
+      finalReconsideration:job.payload.finalReconsideration===true,
+      priorRuling:prior
+    });
     return;
   }
   throw new Error(`Unknown job type ${job.type}`);

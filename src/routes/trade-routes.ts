@@ -4,9 +4,9 @@ import type { PoolClient } from "pg";
 import { Decimal } from "decimal.js";
 import { z } from "zod";
 import { guard } from "../auth.js";
-import { one, maybeOne, withTransaction } from "../db.js";
+import { one, maybeOne, pool, withTransaction } from "../db.js";
 import { accounts, accountBalance, postLedgerTransaction } from "../core/ledger.js";
-import { quoteTrade, reserveVersion, spotPrice } from "../core/market.js";
+import { marketAuraAdjustment, quoteTrade, reserveVersion } from "../core/market.js";
 import { badRequest, conflict, forbidden, notFound } from "../errors.js";
 import { portfolioTotals } from "../services/portfolio-service.js";
 import type { TradeSide } from "../types.js";
@@ -67,6 +67,15 @@ async function validateOrder(
   if (side === "SELL" && new Decimal(position.long_qty).lt(quantity)) {
     throw badRequest("You do not own enough shares", "INSUFFICIENT_SHARES");
   }
+  if (side === "SELL") {
+    const reserved = await client.query<{ quantity: string }>(
+      "SELECT COALESCE(SUM(quantity),0)::text AS quantity FROM limit_orders WHERE season_id=$1 AND user_id=$2 AND stock_id=$3 AND side='SELL' AND status='OPEN'",
+      [seasonId,userId,stockId]
+    );
+    if (new Decimal(position.long_qty).minus(reserved.rows[0]?.quantity??0).lt(quantity)) {
+      throw badRequest("Some of your shares are reserved by open sell limit orders", "SHARES_RESERVED");
+    }
+  }
   if (side === "SHORT") {
     if (new Decimal(position.long_qty).gt(0)) throw conflict("Sell your long position before shorting");
     const totals = await portfolioTotals(client, userId, seasonId);
@@ -87,6 +96,96 @@ async function validateOrder(
 }
 
 export async function registerTradeRoutes(app: FastifyInstance): Promise<void> {
+  app.get("/api/limit-orders", { preHandler: guard() }, async (request) => {
+    const auth=request.auth!;
+    const result=await pool.query(
+      `SELECT o.id,o.stock_id,o.side,o.quantity::text,o.limit_price::text,o.status,o.created_at,o.filled_at,o.canceled_at,
+              ps.display_name,ps.ticker::text
+         FROM limit_orders o JOIN person_stocks ps ON ps.id=o.stock_id
+        WHERE o.user_id=$1 ORDER BY (o.status='OPEN') DESC,o.created_at DESC LIMIT 50`,[auth.id]);
+    return {items:result.rows};
+  });
+
+  app.post("/api/limit-orders", { preHandler: guard({csrf:true}) }, async (request,reply) => {
+    const input=z.object({stockId:z.string().uuid(),side:z.enum(["BUY","SELL"]),quantity:z.coerce.number().positive().max(100_000),limitPrice:z.coerce.number().positive()}).parse(request.body);
+    const auth=request.auth!;if(auth.stockId===input.stockId)throw forbidden("You cannot trade your own Aura stock");
+    const order=await withTransaction(async client=>{
+      const market=await maybeOne<PoolRow>(client,`SELECT mp.* FROM market_pools mp JOIN seasons s ON s.id=mp.season_id JOIN person_stocks ps ON ps.id=mp.stock_id WHERE mp.stock_id=$1 AND s.status='ACTIVE' AND ps.is_active=true FOR UPDATE OF mp`,[input.stockId]);
+      if(!market)throw notFound("Market not found");if(market.halted_until&&market.halted_until>new Date())throw conflict("This market is temporarily halted","MARKET_HALTED");
+      quoteTrade({shareReserve:market.share_reserve,creditReserve:market.credit_reserve},input.side,input.quantity);
+      const pos=await loadPosition(client,auth.id,input.stockId,market.season_id,true),id=randomUUID();
+      let reservedCash=new Decimal(0);
+      if(input.side==="BUY"){
+        if(new Decimal(pos.short_qty).gt(0))throw conflict("Cover your short before placing a buy order");
+        reservedCash=new Decimal(input.quantity).mul(input.limitPrice).mul("1.005").toDecimalPlaces(8);
+        const cash=await accountBalance(client,accounts.userCash(auth.id,market.season_id));
+        if(cash.lt(reservedCash))throw badRequest(`This limit order reserves ${reservedCash.toFixed(2)} AC, but you have ${cash.toFixed(2)} AC`,"INSUFFICIENT_FUNDS");
+        await postLedgerTransaction(client,"LIMIT_RESERVE",`Reserve cash for buy limit ${id}`,[
+          {accountKey:accounts.userCash(auth.id,market.season_id),amount:reservedCash.negated()},
+          {accountKey:accounts.limitEscrow(id,market.season_id),amount:reservedCash}
+        ],id);
+      }else{
+        const reserved=await client.query<{quantity:string}>("SELECT COALESCE(SUM(quantity),0)::text AS quantity FROM limit_orders WHERE season_id=$1 AND user_id=$2 AND stock_id=$3 AND side='SELL' AND status='OPEN'",[market.season_id,auth.id,input.stockId]);
+        const available=new Decimal(pos.long_qty).minus(reserved.rows[0]?.quantity??0);
+        if(available.lt(input.quantity))throw badRequest(`Only ${available.toFixed(4)} unreserved shares are available to sell`,"INSUFFICIENT_SHARES");
+      }
+      return one(client,"INSERT INTO limit_orders(id,season_id,user_id,stock_id,side,quantity,limit_price,reserved_cash) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",[id,market.season_id,auth.id,input.stockId,input.side,input.quantity,input.limitPrice,reservedCash.toFixed(8)]);
+    });
+    reply.code(201);return order;
+  });
+
+  app.post("/api/limit-orders/:id/cancel",{preHandler:guard({csrf:true})},async(request)=>{
+    const params=z.object({id:z.string().uuid()}).parse(request.params),auth=request.auth!;
+    await withTransaction(async client=>{
+      const order=await maybeOne<{id:string;season_id:string;user_id:string;side:string;reserved_cash:string;status:string}>(client,"SELECT * FROM limit_orders WHERE id=$1 AND user_id=$2 FOR UPDATE",[params.id,auth.id]);
+      if(!order)throw notFound("Limit order not found");if(order.status!=="OPEN")throw conflict("Only open orders can be canceled");
+      if(order.side==="BUY"&&new Decimal(order.reserved_cash).gt(0))await postLedgerTransaction(client,"LIMIT_CANCEL",`Refund canceled buy limit ${order.id}`,[
+        {accountKey:accounts.limitEscrow(order.id,order.season_id),amount:new Decimal(order.reserved_cash).negated()},
+        {accountKey:accounts.userCash(auth.id,order.season_id),amount:order.reserved_cash}
+      ],order.id);
+      await client.query("UPDATE limit_orders SET status='CANCELED',canceled_at=now(),updated_at=now() WHERE id=$1",[order.id]);
+    });return {ok:true};
+  });
+
+  app.post("/api/trades/preview", { preHandler: guard({ csrf: true }) }, async (request) => {
+    const input = quoteInput.parse(request.body);
+    const auth = request.auth!;
+    if (auth.stockId === input.stockId) throw forbidden("You cannot trade your own Aura stock");
+    return withTransaction(async (client) => {
+      const pool = await maybeOne<PoolRow>(client,
+        `SELECT mp.* FROM market_pools mp JOIN seasons s ON s.id=mp.season_id
+          JOIN person_stocks ps ON ps.id=mp.stock_id
+         WHERE mp.stock_id=$1 AND s.status='ACTIVE' AND ps.is_active=true`, [input.stockId]);
+      if (!pool) throw notFound("Market not found");
+      const position = await loadPosition(client, auth.id, input.stockId, pool.season_id);
+      const quote = quoteTrade({ shareReserve: pool.share_reserve, creditReserve: pool.credit_reserve }, input.side, input.quantity);
+      const cash = await accountBalance(client, accounts.userCash(auth.id, pool.season_id));
+      let canExecute = true, reason: string | null = null;
+      try { await validateOrder(client, auth.id, input.stockId, input.side, quote, position, pool.season_id); }
+      catch (error) { canExecute = false; reason = error instanceof Error ? error.message : "Order is not available"; }
+      const qty = new Decimal(quote.quantity), gross = new Decimal(quote.grossAmount), net = new Decimal(quote.netAmount);
+      const longBefore = new Decimal(position.long_qty), shortBefore = new Decimal(position.short_qty);
+      let cashChange = new Decimal(0), collateralRequired = new Decimal(0), escrowChange = new Decimal(0);
+      if (input.side === "BUY") cashChange = net.negated();
+      else if (input.side === "SELL") cashChange = net;
+      else if (input.side === "SHORT") {
+        collateralRequired = gross.mul("0.50"); cashChange = collateralRequired.negated(); escrowChange = net.plus(collateralRequired);
+      } else if (shortBefore.gt(0) && qty.lte(shortBefore)) {
+        const ratio = qty.div(shortBefore);
+        const available = new Decimal(position.short_proceeds).plus(position.short_collateral).mul(ratio);
+        cashChange = available.minus(net); escrowChange = available.negated();
+      }
+      return {
+        ...quote, canExecute, reason, availableCash: cash.toFixed(8), cashChange: cashChange.toFixed(8),
+        projectedCash: cash.plus(cashChange).toFixed(8), collateralRequired: collateralRequired.toFixed(8),
+        escrowChange: escrowChange.toFixed(8), longBefore: longBefore.toFixed(8), shortBefore: shortBefore.toFixed(8),
+        longAfter: (input.side === "BUY" ? longBefore.plus(qty) : input.side === "SELL" ? longBefore.minus(qty) : longBefore).toFixed(8),
+        shortAfter: (input.side === "SHORT" ? shortBefore.plus(qty) : input.side === "COVER" ? shortBefore.minus(qty) : shortBefore).toFixed(8),
+        auraImpact: marketAuraAdjustment(input.side, quote.grossAmount).toFixed(2)
+      };
+    });
+  });
+
   app.post("/api/trades/quote", { preHandler: guard({ csrf: true }) }, async (request, reply) => {
     const input = quoteInput.parse(request.body);
     const auth = request.auth!;
@@ -212,8 +311,8 @@ export async function registerTradeRoutes(app: FastifyInstance): Promise<void> {
       await client.query(
         `UPDATE market_pools SET share_reserve=$1, credit_reserve=$2,
            halted_until=CASE WHEN $3::numeric >= 0.35 THEN now() + interval '30 minutes' ELSE halted_until END,
-           updated_at=now() WHERE id=$4`,
-        [calculated.nextShareReserve, calculated.nextCreditReserve, dayMove.toFixed(8), market.id]
+           organic_price=$4, ambient_deviation=0, updated_at=now() WHERE id=$5`,
+        [calculated.nextShareReserve, calculated.nextCreditReserve, dayMove.toFixed(8), nextPrice.toFixed(8), market.id]
       );
       await client.query(
         `INSERT INTO trades(id, season_id, user_id, stock_id, quote_id, idempotency_key, side, quantity, gross_amount, fee_amount, execution_price)
@@ -221,13 +320,46 @@ export async function registerTradeRoutes(app: FastifyInstance): Promise<void> {
         [tradeId, quote.season_id, auth.id, quote.stock_id, quote.id, input.idempotencyKey, quote.side,
           calculated.quantity, calculated.grossAmount, calculated.feeAmount, calculated.executionPrice]
       );
+      const auraImpact = marketAuraAdjustment(quote.side, calculated.grossAmount);
+      if (!auraImpact.isZero()) {
+        await client.query(
+          `INSERT INTO aura_ledger_entries(season_id, stock_id, delta, reason, created_by)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [quote.season_id, quote.stock_id, auraImpact.toFixed(2),
+            `Market confidence from ${quote.side.toLowerCase()} trade ${tradeId}`, auth.id]
+        );
+        await client.query(
+          `UPDATE person_stocks
+              SET seasonal_aura=seasonal_aura+$1, career_aura=career_aura+$1, updated_at=now()
+            WHERE id=$2`,
+          [auraImpact.toFixed(2), quote.stock_id]
+        );
+      }
+      await client.query(
+        `INSERT INTO market_price_ticks(season_id,stock_id,price,cause,reference_id,is_synthetic)
+         VALUES ($1,$2,$3,'TRADE',$4,false)`,
+        [quote.season_id, quote.stock_id, nextPrice.toFixed(8), tradeId]
+      );
       await client.query("UPDATE trade_quotes SET consumed_at=now() WHERE id=$1", [quote.id]);
       await client.query(
         `INSERT INTO feed_events(season_id, kind, actor_id, subject_stock_id, payload)
          VALUES ($1, 'TRADE', $2, $3, $4)`,
-        [quote.season_id, auth.id, quote.stock_id, JSON.stringify({ tradeId, side: quote.side, quantity: calculated.quantity, price: calculated.executionPrice })]
+        [quote.season_id, auth.id, quote.stock_id, JSON.stringify({
+          tradeId,
+          side: quote.side,
+          quantity: calculated.quantity,
+          price: calculated.executionPrice,
+          auraImpact: auraImpact.toNumber()
+        })]
       );
-      return { tradeId, duplicate: false, side: quote.side, quantity: calculated.quantity, executionPrice: calculated.executionPrice };
+      return {
+        tradeId,
+        duplicate: false,
+        side: quote.side,
+        quantity: calculated.quantity,
+        executionPrice: calculated.executionPrice,
+        auraImpact: auraImpact.toNumber()
+      };
     });
     reply.code(executed.duplicate ? 200 : 201);
     return executed;

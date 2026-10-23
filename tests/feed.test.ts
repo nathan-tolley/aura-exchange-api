@@ -4,7 +4,8 @@ import { serializeFeedEvent, type FeedRow } from "../src/services/feed-service.j
 const row: FeedRow = {
   id: "event", kind: "AURA_RULING", actor_id: "author", subject_stock_id: "target",
   payload: { authorId: "author", delta: 3, explanation: "Did the thing" }, created_at: new Date(),
-  actor_name: "Alex Author", actor_ticker: "ALEX", subject_name: "Taylor Target", subject_ticker: "TAYL"
+  actor_name: "Alex Author", actor_ticker: "ALEX", subject_name: "Taylor Target", subject_ticker: "TAYL",
+  upvotes: 2, downvotes: 1, vote_score: 1, viewer_vote: 0
 };
 
 describe("feed anonymity", () => {
@@ -23,6 +24,11 @@ describe("feed anonymity", () => {
   it("reveals identity to moderators", () => {
     const event = serializeFeedEvent(row, { role: "MODERATOR", stockId: null });
     expect(event.actor.displayName).toBe("Alex Author");
+  });
+
+  it("includes the vote-adjusted Aura amount", () => {
+    const event = serializeFeedEvent(row, { role: "MEMBER", stockId: "someone-else" });
+    expect(event.votes).toEqual({ up: 2, down: 1, viewerVote: 0, effectiveDelta: 3.3 });
   });
 });
 

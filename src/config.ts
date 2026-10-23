@@ -14,6 +14,7 @@ const schema = z.object({
   AI_PROVIDER: z.enum(["openai", "fake"]).default("fake"),
   OPENAI_API_KEY: z.string().optional(),
   AI_MODEL: z.string().default("gpt-6-astra"),
+  CHATGPT_CALLBACK_URL: z.string().url().default("http://127.0.0.1:1455/auth/callback"),
   WORKER_POLL_MS: z.coerce.number().int().min(250).default(2000),
   TZ: z.string().default("America/New_York")
 });

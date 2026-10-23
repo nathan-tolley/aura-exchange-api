@@ -2,62 +2,40 @@ import { useEffect, useState, type FormEvent } from "react";
 import { api } from "../api";
 import { AdminIcon, ShieldIcon } from "../icons";
 
-interface Person { id: string; display_name: string; ticker: string; is_active: boolean; user_id:string|null; username: string | null; role: string | null; seasonal_aura: number }
-interface Review { id: string; display_name: string; ticker: string; explanation: string; verdict: string; delta: number; confidence: string; rationale: string; policy_flags: string[] }
+interface Person { id:string;display_name:string;ticker:string;is_active:boolean;user_id:string|null;username:string|null;role:string|null;seasonal_aura:number }
+interface Review { id:string;status:"REVIEW"|"APPEALED";display_name:string;ticker:string;explanation:string;verdict:string;delta:number;confidence:string;rationale:string;policy_flags:string[];provider:string;model:string;ai_error:string|null }
+interface ChatGPTStatus { connected:boolean;email?:string;model?:string|null;expiresAt?:string }
+type ReviewAction = "APPROVE"|"ADJUST"|"REJECT"|"OVERTURN"|"RETRY";
 
 export function AdminView() {
-  const [people, setPeople] = useState<Person[]>([]);
-  const [reviews, setReviews] = useState<Review[]>([]);
-  const [claim, setClaim] = useState<{ name: string; code: string } | null>(null);
-  const [error, setError] = useState("");
-  async function load() {
-    const [roster, queue] = await Promise.all([
-      api<{ people: Person[] }>("/api/admin/roster"), api<{ items: Review[] }>("/api/moderation/review")
-    ]);
-    setPeople(roster.people); setReviews(queue.items);
+  const [people,setPeople]=useState<Person[]>([]),[reviews,setReviews]=useState<Review[]>([]);
+  const [claim,setClaim]=useState<{name:string;code:string}|null>(null),[error,setError]=useState(""),[notice,setNotice]=useState("");
+  const [busy,setBusy]=useState<string|null>(null),[deltas,setDeltas]=useState<Record<string,string>>({}),[notes,setNotes]=useState<Record<string,string>>({});
+  const [chatgpt,setChatgpt]=useState<ChatGPTStatus>({connected:false});
+  async function load(){const [roster,queue,status]=await Promise.all([api<{people:Person[]}>("/api/admin/roster"),api<{items:Review[]}>("/api/moderation/review"),api<ChatGPTStatus>("/api/admin/chatgpt/status")]);setPeople(roster.people);setReviews(queue.items);setChatgpt(status);setDeltas((old)=>Object.fromEntries(queue.items.map((item)=>[item.id,old[item.id]??String(item.delta)])));}
+  useEffect(()=>{load().catch((caught)=>setError(caught instanceof Error?caught.message:"Operations failed to load"));const receive=(event:MessageEvent)=>{if(event.origin===window.location.origin&&event.data?.type==="aura-chatgpt-connected"){setNotice("ChatGPT plan connected.");void load();}};window.addEventListener("message",receive);return()=>window.removeEventListener("message",receive);},[]);
+  async function connectChatGPT(){try{setError("");const result=await api<{authorizeUrl:string}>("/api/admin/chatgpt/connect",{method:"POST",body:"{}"});window.location.assign(result.authorizeUrl);}catch(caught){setError(caught instanceof Error?caught.message:"Could not start ChatGPT sign-in");}}
+  async function disconnectChatGPT(){try{await api("/api/admin/chatgpt/disconnect",{method:"POST",body:"{}"});setNotice("ChatGPT plan disconnected.");await load();}catch(caught){setError(caught instanceof Error?caught.message:"Could not disconnect ChatGPT");}}
+  async function addPerson(event:FormEvent<HTMLFormElement>){event.preventDefault();setError("");const form=event.currentTarget,data=Object.fromEntries(new FormData(form));try{const result=await api<{claimCode:string}>("/api/admin/roster",{method:"POST",body:JSON.stringify({displayName:data.displayName,ticker:data.ticker})});setClaim({name:String(data.displayName),code:result.claimCode});form.reset();await load();}catch(caught){setError(caught instanceof Error?caught.message:"Could not add listing");}}
+  async function resolve(review:Review,action:ReviewAction){
+    if(busy)return;setBusy(review.id);setError("");setNotice("");
+    const note=notes[review.id]?.trim()||({APPROVE:"Approved after moderator review.",ADJUST:"Aura adjusted by moderator.",REJECT:"Rejected by moderator.",OVERTURN:"Overturned after appeal.",RETRY:"AI ruling retried by moderator."} as const)[action];
+    const delta=Number(deltas[review.id]);
+    if(action==="ADJUST"&&(!Number.isInteger(delta)||delta < -10||delta > 10)){setError("Adjustment must be a whole number from -10 to +10.");setBusy(null);return;}
+    try{await api(`/api/moderation/review/${review.id}`,{method:"POST",body:JSON.stringify({action,...(action==="ADJUST"?{delta}:{}),note})});setNotice(action==="RETRY"?"AI retry queued.":"Review resolved.");await load();}
+    catch(caught){setError(caught instanceof Error?caught.message:"The review could not be resolved");}finally{setBusy(null);}
   }
-  useEffect(() => { load().catch((e) => setError(e.message)); }, []);
-  async function addPerson(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError("");
-    const form = event.currentTarget;
-    const data = Object.fromEntries(new FormData(form));
-    try {
-      const result = await api<{ claimCode: string }>("/api/admin/roster", { method: "POST", body: JSON.stringify({ displayName: data.displayName, ticker: data.ticker }) });
-      setClaim({ name: String(data.displayName), code: result.claimCode }); form.reset(); await load();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not add listing"); }
-  }
-  async function resolve(id: string, action: "APPROVE"|"REJECT"|"OVERTURN", delta?: number) {
-    const note = window.prompt("Moderator note", action === "APPROVE" ? "Approved after review." : "Resolved by moderator.");
-    if (!note) return;
-    await api(`/api/moderation/review/${id}`, { method: "POST", body: JSON.stringify({ action, delta, note }) });
-    await load();
-  }
-  async function issueReset(person:Person) {
-    if (!person.user_id) return;
-    const result=await api<{resetCode:string}>(`/api/admin/users/${person.user_id}/reset-code`,{method:"POST",body:"{}"});
-    setClaim({name:`${person.display_name} password reset`,code:result.resetCode});
-  }
-  async function delist(person:Person) {
-    if (!window.confirm(`Freeze and delist $${person.ticker}? Open positions will settle at the current mark.`)) return;
-    await api(`/api/admin/roster/${person.id}/delist`,{method:"POST",body:"{}"});
-    await load();
-  }
-  return <section className="page-content">
-    <header className="page-heading"><div><p className="eyebrow">CONTROL ROOM</p><h1>Exchange operations</h1><p>Listings, claim codes, and rulings that need a human.</p></div></header>
-    {error && <div className="form-error">{error}</div>}
-    <div className="admin-grid">
-      <section className="panel"><div className="panel-heading"><div><p className="eyebrow">NEW LISTING</p><h2>Add a person</h2></div><AdminIcon /></div>
-        <form className="inline-form" onSubmit={addPerson}><label>Display name<input name="displayName" required maxLength={60}/></label><label>Ticker<input name="ticker" required minLength={3} maxLength={5} placeholder="JANE"/></label><button className="button primary">Create claim code</button></form>
-        {claim && <div className="claim-ticket"><span>Give this one-time code to {claim.name}</span><strong>{claim.code}</strong><small>Shown once · expires in 30 days</small></div>}
-      </section>
-      <section className="panel"><div className="panel-heading"><div><p className="eyebrow">ROSTER</p><h2>{people.length} listings</h2></div></div>
-        <div className="roster-list">{people.map((person) => <div key={person.id}><span className="avatar small">{person.display_name.slice(0,2).toUpperCase()}</span><span><b>{person.display_name}</b><small>${person.ticker} · {person.seasonal_aura} aura</small></span>{person.user_id&&<button className="text-button" onClick={()=>issueReset(person)}>Reset</button>}{person.is_active&&<button className="text-button danger-text" onClick={()=>delist(person)}>Delist</button>}<em className={person.is_active?"status active":"status"}>{person.is_active?"Active":"Unclaimed"}</em></div>)}</div>
-      </section>
-    </div>
-    <section className="panel review-panel"><div className="panel-heading"><div><p className="eyebrow">HUMAN JUDGMENT</p><h2>Review queue <span>{reviews.length}</span></h2></div><ShieldIcon /></div>
-      {reviews.length===0 && <div className="empty-compact">Nothing needs a grown-up right now.</div>}
-      {reviews.map((review) => <div className="review-item" key={review.id}><div><span className="ticker">${review.ticker}</span><h3>{review.explanation}</h3><p>AI: {review.verdict} {review.delta > 0 ? "+" : ""}{review.delta} · {Math.round(Number(review.confidence)*100)}% · “{review.rationale}”</p>{review.policy_flags?.length > 0 && <div className="flag-row">{review.policy_flags.map((flag) => <span key={flag}>{flag.replaceAll("_"," ")}</span>)}</div>}</div><div className="review-actions"><button className="button small" onClick={()=>resolve(review.id,"APPROVE")}>Approve</button><button className="button small danger" onClick={()=>resolve(review.id,"REJECT")}>Reject</button><button className="text-button" onClick={()=>resolve(review.id,"OVERTURN")}>Overturn</button></div></div>)}
+  async function issueReset(person:Person){if(!person.user_id)return;try{const result=await api<{resetCode:string}>(`/api/admin/users/${person.user_id}/reset-code`,{method:"POST",body:"{}"});setClaim({name:`${person.display_name} password reset`,code:result.resetCode});}catch(caught){setError(caught instanceof Error?caught.message:"Reset failed");}}
+  async function delist(person:Person){if(!window.confirm(`Freeze and delist $${person.ticker}? Open positions will settle at the current mark.`))return;try{await api(`/api/admin/roster/${person.id}/delist`,{method:"POST",body:"{}"});await load();}catch(caught){setError(caught instanceof Error?caught.message:"Delisting failed");}}
+  return <section className="page-content"><header className="page-heading"><div><p className="eyebrow">CONTROL ROOM</p><h1>Exchange operations</h1><p>Listings, claim codes, and rulings that need a human.</p></div></header>
+    {error&&<div className="form-error">{error}</div>}{notice&&<div className="form-success">{notice}</div>}
+    <section className="panel chatgpt-connection"><div className="panel-heading"><div><p className="eyebrow">AI JUDGE</p><h2>ChatGPT plan</h2></div><span className={chatgpt.connected?"status active":"status"}>{chatgpt.connected?"Connected":"Not connected"}</span></div><div className="connection-body">{chatgpt.connected?<><p><b>{chatgpt.email}</b><small>{chatgpt.model?`Using ${chatgpt.model}`:"Model will be selected on first ruling"}</small></p><div><a className="text-button" href="https://chatgpt.com/#settings/usage" target="_blank" rel="noreferrer">Manage usage</a><button className="button small danger" onClick={disconnectChatGPT}>Disconnect</button></div></>:<><p>Use your eligible ChatGPT Plus or Pro allowance for Aura rulings. Aura Exchange cannot access your chats or memories.</p><button className="button primary" onClick={connectChatGPT}>Continue with ChatGPT</button></>}</div></section>
+    <div className="admin-grid"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">NEW LISTING</p><h2>Add a person</h2></div><AdminIcon/></div><form className="inline-form" onSubmit={addPerson}><label>Display name<input name="displayName" required maxLength={60}/></label><label>Ticker<input name="ticker" required minLength={3} maxLength={5} placeholder="JANE"/></label><button className="button primary">Create claim code</button></form>{claim&&<div className="claim-ticket"><span>Give this one-time code to {claim.name}</span><strong>{claim.code}</strong><small>Shown once · expires in 30 days</small></div>}</section>
+      <section className="panel"><div className="panel-heading"><div><p className="eyebrow">ROSTER</p><h2>{people.length} listings</h2></div></div><div className="roster-list">{people.map((person)=><div key={person.id}><span className="avatar small">{person.display_name.slice(0,2).toUpperCase()}</span><span><b>{person.display_name}</b><small>${person.ticker} · {person.seasonal_aura} aura</small></span>{person.user_id&&<button className="text-button" onClick={()=>issueReset(person)}>Reset</button>}{person.is_active&&<button className="text-button danger-text" onClick={()=>delist(person)}>Delist</button>}<em className={person.is_active?"status active":"status"}>{person.is_active?"Active":"Unclaimed"}</em></div>)}</div></section></div>
+    <section className="panel review-panel"><div className="panel-heading"><div><p className="eyebrow">HUMAN JUDGMENT</p><h2>Review queue <span>{reviews.length}</span></h2></div><ShieldIcon/></div>{reviews.length===0&&<div className="empty-compact">Nothing needs a grown-up right now.</div>}
+      {reviews.map((review)=><div className="review-item review-editor" key={review.id}><div className="review-copy"><span className="ticker">${review.ticker}</span><h3>{review.explanation}</h3><p>Judge: {review.provider==="system"?"Unavailable":review.provider} · {review.verdict} {review.delta>0?"+":""}{review.delta} · {Math.round(Number(review.confidence)*100)}% · “{review.rationale}”</p>{review.ai_error&&<div className="ai-provider-error">{review.ai_error} Add API credits, then use Retry AI.</div>}{review.policy_flags?.length>0&&<div className="flag-row">{review.policy_flags.map((flag)=><span key={flag}>{flag.replaceAll("_"," ")}</span>)}</div>}</div>
+        <div className="review-resolution"><label>Moderator note<input value={notes[review.id]??""} onChange={(event)=>setNotes({...notes,[review.id]:event.target.value})} placeholder="Optional note" maxLength={500}/></label><label>Aura adjustment<input type="number" min={-10} max={10} step={1} value={deltas[review.id]??String(review.delta)} onChange={(event)=>setDeltas({...deltas,[review.id]:event.target.value})}/></label><div className="review-actions">{review.provider==="system"&&<button className="button small" disabled={busy===review.id} onClick={()=>resolve(review,"RETRY")}>Retry AI</button>}<button className="button small" disabled={busy===review.id} onClick={()=>resolve(review,"APPROVE")}>{review.status==="APPEALED"?"Uphold":"Approve"}</button><button className="button small" disabled={busy===review.id} onClick={()=>resolve(review,"ADJUST")}>Apply adjustment</button>{review.status==="APPEALED"?<button className="button small danger" disabled={busy===review.id} onClick={()=>resolve(review,"OVERTURN")}>Overturn</button>:<button className="button small danger" disabled={busy===review.id} onClick={()=>resolve(review,"REJECT")}>Reject</button>}</div></div>
+      </div>)}
     </section>
   </section>;
 }
-

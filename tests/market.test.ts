@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Decimal } from "decimal.js";
-import { auraComposite, collateralRatio, isLiquidatable, marketIndex, quoteTrade, spotPrice } from "../src/core/market.js";
+import { auraComposite, collateralRatio, isLiquidatable, marketAuraAdjustment, marketIndex, quoteTrade, spotPrice } from "../src/core/market.js";
 
 describe("constant-product market", () => {
   const initial = { shareReserve: 1000, creditReserve: 100000 };
@@ -26,6 +26,19 @@ describe("constant-product market", () => {
     expect(collateralRatio(150, 100).toNumber()).toBe(1.5);
     expect(isLiquidatable(124.99, 100)).toBe(true);
     expect(isLiquidatable(125, 100)).toBe(false);
+  });
+});
+
+describe("market confidence Aura", () => {
+  it("rewards buying and covering while penalizing selling and shorting", () => {
+    expect(marketAuraAdjustment("BUY", 2500).toNumber()).toBe(2.5);
+    expect(marketAuraAdjustment("COVER", 1000).toNumber()).toBe(1);
+    expect(marketAuraAdjustment("SELL", 2500).toNumber()).toBe(-2.5);
+    expect(marketAuraAdjustment("SHORT", 1000).toNumber()).toBe(-1);
+  });
+
+  it("caps a single trade's confidence effect", () => {
+    expect(marketAuraAdjustment("BUY", 25000).toNumber()).toBe(10);
   });
 });
 

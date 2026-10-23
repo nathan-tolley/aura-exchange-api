@@ -81,11 +81,19 @@ export async function registerAuraRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/api/moderation/review", { preHandler: guard({ roles: ["OWNER", "MODERATOR"] }) }, async () => {
     const result = await pool.query(
-      `SELECT s.id, s.explanation, s.created_at, ps.display_name, ps.ticker::text,
-              r.id AS ruling_id, r.verdict, r.delta, r.confidence, r.rationale, r.category, r.policy_flags
+      `SELECT s.id, s.status, s.explanation, s.created_at, ps.display_name, ps.ticker::text,
+              r.id AS ruling_id, r.verdict, r.delta, r.confidence, r.rationale, r.category, r.policy_flags,
+              r.provider, r.model,
+              CASE WHEN latest_job.last_error ILIKE '%no credits remaining%' THEN 'OpenAI API credits are exhausted.'
+                   WHEN latest_job.last_error IS NOT NULL THEN 'The AI provider could not complete this ruling.' END AS ai_error
          FROM aura_submissions s
          JOIN person_stocks ps ON ps.id = s.subject_stock_id
          LEFT JOIN aura_rulings r ON r.submission_id = s.id AND r.is_current
+         LEFT JOIN LATERAL (
+           SELECT j.last_error FROM jobs j
+            WHERE j.type='JUDGE_AURA' AND j.payload->>'submissionId'=s.id::text
+            ORDER BY j.created_at DESC LIMIT 1
+         ) latest_job ON true
         WHERE s.status IN ('REVIEW', 'APPEALED') ORDER BY s.created_at`
     );
     return { items: result.rows };
@@ -96,8 +104,8 @@ export async function registerAuraRoutes(app: FastifyInstance): Promise<void> {
   }, async (request) => {
     const params = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = z.object({
-      action: z.enum(["APPROVE", "ADJUST", "REJECT", "OVERTURN"]),
-      delta: z.number().int().min(-10).max(10).optional(),
+      action: z.enum(["APPROVE", "ADJUST", "REJECT", "OVERTURN", "RETRY"]),
+      delta: z.number().int().min(-30).max(30).optional(),
       note: z.string().trim().min(2).max(500)
     }).parse(request.body);
     const auth = request.auth!;
@@ -106,12 +114,16 @@ export async function registerAuraRoutes(app: FastifyInstance): Promise<void> {
       const submission = await one<{
         id: string; season_id: string; author_id: string; subject_stock_id: string; explanation: string; status: string;
       }>(client, "SELECT * FROM aura_submissions WHERE id = $1 FOR UPDATE", [params.id]);
-      const ruling = await maybeOne<{ id: string; delta: number; rationale: string }>(client,
-        "SELECT id, delta, rationale FROM aura_rulings WHERE submission_id = $1 AND is_current", [params.id]
+      const ruling = await maybeOne<{ id: string; delta: number; rationale: string; provider: string }>(client,
+        "SELECT id, delta, rationale, provider FROM aura_rulings WHERE submission_id = $1 AND is_current", [params.id]
       );
       if (!ruling) throw badRequest("Submission has no ruling");
 
-      if (input.action === "REJECT") {
+      if (input.action === "RETRY") {
+        await client.query("UPDATE aura_rulings SET is_current=false, reviewed_by=$1, reviewed_at=now() WHERE id=$2", [auth.id, ruling.id]);
+        await client.query("UPDATE aura_submissions SET status='PENDING',updated_at=now() WHERE id=$1", [params.id]);
+        await client.query("INSERT INTO jobs(type,payload) VALUES ('JUDGE_AURA',$1)", [JSON.stringify({ submissionId: params.id })]);
+      } else if (input.action === "REJECT") {
         await client.query("UPDATE aura_submissions SET status = 'REJECTED', hidden_at = now(), updated_at = now() WHERE id = $1", [params.id]);
       } else if (input.action === "OVERTURN") {
         const previous = await maybeOne<{ id: string; delta: number }>(client,
@@ -137,7 +149,7 @@ export async function registerAuraRoutes(app: FastifyInstance): Promise<void> {
         if (!existing.rowCount) await applyAuraEntry(client, submission, ruling.id, delta, input.note, auth.id);
         await client.query("UPDATE appeals SET status = 'UPHELD', resolved_by = $1, resolution_note = $2, resolved_at = now() WHERE submission_id = $3 AND status = 'PENDING'", [auth.id, input.note, params.id]);
       }
-      await client.query(
+      if (input.action !== "RETRY") await client.query(
         "UPDATE aura_rulings SET reviewed_by = $1, reviewed_at = now() WHERE id = $2", [auth.id, ruling.id]
       );
       await client.query(

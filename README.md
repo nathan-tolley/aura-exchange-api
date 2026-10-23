@@ -10,10 +10,12 @@ It is fictional entertainment—not a performance system, factual record, securi
 - Owner bootstrap, roster management, one-time claim codes, member/moderator/owner roles, and consent-gated listings.
 - Administrator-issued password reset codes, locally re-encoded avatars, opt-out/delisting, and mark-price position settlement.
 - Anonymous-to-the-public Aura submissions, a 10-per-24-hour daily limit with no separate per-subject cap, duplicate prevention, AI rulings, moderator review, and seven-day subject appeals.
+- Immediate community voting on Aura rulings; each net vote changes the original ruling's effect by 10%, with every adjustment recorded in the immutable Aura ledger.
 - Provider-neutral judge with an OpenAI Responses API adapter and deterministic fake judge for local development.
 - Constant-product AMMs, 15-second reserve-bound quotes, 0.5% fees, stale quote protection, long and short positions, 150% initial collateral, exposure caps, circuit breakers, and automatic maintenance liquidation.
 - Immutable double-entry cash ledger, immutable trade and Aura ledgers, weekly allowances/dividends, daily borrow fees, eight-week seasons, index snapshots, and correction entries.
 - Responsive exchange dashboard, global tape, trade drawer, portfolio, leaderboards, and moderator operations console.
+- Expandable per-person stock history with season/day/week ranges, high and low markers, exact trade catalysts, and clearly separated Aura sentiment context.
 - Docker Compose deployment with internal PostgreSQL, worker, Caddy automatic HTTPS, health reporting, and backup/restore scripts.
 
 ## Local development
