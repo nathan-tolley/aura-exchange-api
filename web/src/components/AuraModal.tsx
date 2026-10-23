@@ -24,7 +24,7 @@ export function AuraModal({ stocks, ownStockId, onClose, onSubmitted }: {
       <div className="modal-icon"><SparkIcon /></div>
       <p className="eyebrow">FILE AN AURA EVENT</p>
       <h2>What happened?</h2>
-      <p>The judge scores the moment, not the person. Your name stays hidden from the public feed. You can file 10 events per 24 hours, with at most 2 about the same person.</p>
+      <p>The judge scores the moment, not the person. Your name stays hidden from the public feed. You can file 10 events per 24 hours, including all 10 about the same person.</p>
       <form onSubmit={submit}>
         <label>Who is this about?<select value={subjectId} onChange={(event) => setSubjectId(event.target.value)}>
           {eligible.map((stock) => <option value={stock.id} key={stock.id}>${stock.ticker} · {stock.displayName}</option>)}

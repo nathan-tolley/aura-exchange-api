@@ -9,7 +9,7 @@ It is fictional entertainment—not a performance system, factual record, securi
 - Invite/claim-code membership, Argon2id passwords, secure cookie sessions, CSRF checks, rate limits, and login lockouts.
 - Owner bootstrap, roster management, one-time claim codes, member/moderator/owner roles, and consent-gated listings.
 - Administrator-issued password reset codes, locally re-encoded avatars, opt-out/delisting, and mark-price position settlement.
-- Anonymous-to-the-public Aura submissions, a 10-per-24-hour daily limit, a 2-per-subject limit, duplicate prevention, AI rulings, moderator review, and seven-day subject appeals.
+- Anonymous-to-the-public Aura submissions, a 10-per-24-hour daily limit with no separate per-subject cap, duplicate prevention, AI rulings, moderator review, and seven-day subject appeals.
 - Provider-neutral judge with an OpenAI Responses API adapter and deterministic fake judge for local development.
 - Constant-product AMMs, 15-second reserve-bound quotes, 0.5% fees, stale quote protection, long and short positions, 150% initial collateral, exposure caps, circuit breakers, and automatic maintenance liquidation.
 - Immutable double-entry cash ledger, immutable trade and Aura ledgers, weekly allowances/dividends, daily borrow fees, eight-week seasons, index snapshots, and correction entries.

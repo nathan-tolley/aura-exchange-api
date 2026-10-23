@@ -27,16 +27,13 @@ export async function registerAuraRoutes(app: FastifyInstance): Promise<void> {
       );
       if (!subject) throw notFound("That Aura stock is not active");
       const season = await one<{ id: string }>(client, "SELECT id FROM seasons WHERE status = 'ACTIVE'");
-      const rates = await one<{ total: string; target_total: string }>(client,
-        `SELECT COUNT(*) FILTER (WHERE created_at >= now() - interval '24 hours')::text AS total,
-                COUNT(*) FILTER (WHERE created_at >= now() - interval '24 hours' AND subject_stock_id = $2)::text AS target_total
-           FROM aura_submissions WHERE author_id = $1`, [auth.id, input.subjectId]
+      const rates = await one<{ total: string }>(client,
+        `SELECT COUNT(*) FILTER (WHERE created_at >= now() - interval '24 hours')::text AS total
+           FROM aura_submissions WHERE author_id = $1`, [auth.id]
       );
       if (Number(rates.total) >= DAILY_AURA_SUBMISSION_LIMIT) {
         throw badRequest(`Daily Aura submission limit of ${DAILY_AURA_SUBMISSION_LIMIT} reached`, "RATE_LIMITED");
       }
-      if (Number(rates.target_total) >= 2) throw badRequest("You have already submitted twice about this person today", "TARGET_RATE_LIMITED");
-
       try {
         return await one<{ id: string }>(client,
           `INSERT INTO aura_submissions(season_id, author_id, subject_stock_id, explanation, content_hash)
