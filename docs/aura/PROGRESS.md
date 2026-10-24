@@ -3,9 +3,9 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: 0.3 → multi-tenancy: migration `013_exchanges.sql`
-- State: not started (0.2 done; paused at the milestone boundary so the contract changes reach the app session)
-- Next action: design 013: `exchanges`, `memberships`, `person_stocks` → `listings` (+ compatibility view), `exchange_id` on game tables, Default-exchange backfill. First check whether a view named `person_stocks` survives the `/api` SQL (`FOR UPDATE`, `ON CONFLICT`, `INSERT … RETURNING`)
+- Step: 0.3 → migration `013_exchanges.sql` (exchanges, memberships, `person_stocks` → `listings`, `exchange_id` everywhere)
+- State: in progress
+- Next action: write 013 (Default exchange flagged `is_legacy`; `exchange_id` added with the legacy id as a one-off default; an `enforce_exchange_id` trigger fills and checks it from the parent row); rename `person_stocks` → `listings` in all SQL; pass `exchange_id` where legacy code inserts seasons, listings, glossary, moderation actions and memberships; the legacy smoke test must stay green
 - Uncommitted work: none
 - Waiting on Nathan:
   - Node 24 on the host? pnpm 11.25.0 needs Node ≥ 22.13; the host has 20.20.0. Checks run in a `node:24` container meanwhile (NOTES.md → Checks). Ask before changing the global Node.
@@ -22,3 +22,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-24 · 0.2 · `/v1` version gate (426), maintenance mode (503), `GET /v1/health` route (its DB-backed test comes with the harness). 40 tests green.
 - 2026-10-24 · 0.2 · Contract-test harness (ajv + openapi/v1.yaml), dev Postgres (`compose.dev.yaml`, port 5433), DB-backed `/v1/health` contract tests. 47 tests green.
 - 2026-10-24 · 0.2 · Idempotency (`012_idempotency_keys.sql`, preHandler + onSend, hourly purge); spec draft.3 declares 429/503 everywhere and 400/409 on writes. 61 tests green. **0.2 done.**
+- 2026-10-24 · 0.3 · Legacy `/api` smoke test (`tests/legacy/api-smoke.test.ts`, 9 console flows) green on the pre-0.3 schema, as a safety net.
