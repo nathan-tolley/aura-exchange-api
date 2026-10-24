@@ -34,7 +34,7 @@ Work top to bottom. Tick a box only when its check passes and `pnpm check` is gr
 - [x] Migration: `exchanges` (name, timezone, hours, settings), `memberships` (user ↔ exchange, role, consent, opt-out), and `listings` (from `person_stocks`, per exchange).
   - Add `exchange_id` to every game table.
   - Backfill the existing data as one exchange ("Default").
-- [ ] Every query and service is scoped by exchange; there is a membership guard.
+- [x] Every query and service is scoped by exchange; there is a membership guard.
 - [ ] `minListingsToOpen` (default 3): trading is disabled until it's reached (`tradingEnabled: false` on the market).
 - **Check:** a test with two exchanges proves that no data crosses between them.
 

@@ -299,6 +299,10 @@ Plumbing decisions that are mine to make. Game rules go to `DECISIONS.md` instea
   - `runExchangeSchedulers(exchange)` runs everything else on the exchange's own timezone, with run-once keys like `allowance:<exchangeId>:<date>`: ambient motion (one transaction per exchange), index snapshots, season close, allowance, dividends, borrow fees, market open.
   - Migration 014 copies the already-completed keys into that form, so a mid-Monday deploy can't pay the allowance or dividends twice.
   - A failing job is logged and retried on the next loop. It no longer takes down the worker or another exchange's schedule (an exception used to exit the process).
+- 2026-10-24: **the `/v1` membership guard** (`src/v1/membership.ts`).
+  - `membershipGuard({ roles? })` is the preHandler for `/exchanges/{exchangeId}/…`. Unknown, malformed or foreign exchange ids all answer `403 NOT_A_MEMBER {exchangeId}`; a role mismatch answers `403 FORBIDDEN`.
+  - `requireScopedResource(db, request, table, id)` is for id-addressed routes (listing, position, order, event, halt, quote). Another exchange's resource answers the same `404 NOT_FOUND {resource}` as a missing one.
+  - Both read `request.v1User`, which only the bearer guard (0.4) sets, never the console cookie. Idempotency keys are now scoped by `request.v1User.id` (`anon` before sign-in).
 - 2026-10-24: **two more existing bugs fixed** (both on the friend's `master`):
   - The season-close standings query passed one parameter as `$1::text` and compared it with a uuid. Postgres rejects that (`uuid = text`), so seasons never closed and `pilot-reset` would time out.
   - The daily `market-open` cleared every `halted_until`, including the `'infinity'` that marks a delisted pool. It now leaves delisted pools alone.

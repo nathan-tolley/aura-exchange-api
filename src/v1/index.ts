@@ -40,8 +40,10 @@ export async function registerV1(app: FastifyInstance, options: V1Options = defa
       throw appError("MAINTENANCE", { until: isoTime(options.maintenanceUntil), reference: request.id }, "The exchange is down for maintenance");
     });
 
-    // Until bearer auth (0.4) every key is in the "anon" scope; then it becomes the signed-in user's id.
-    registerIdempotency(v1, { scopeOf: () => "anon" });
+    v1.decorateRequest("v1User", null);
+    v1.decorateRequest("membership", null);
+    // Keys belong to the signed-in user; before sign-in (the /auth routes) they share the "anon" scope.
+    registerIdempotency(v1, { scopeOf: (request) => request.v1User?.id ?? "anon" });
 
     v1.setNotFoundHandler(async (request) => {
       throw appError("NOT_FOUND", { resource: "route" }, `No route for ${request.method} ${request.url}`);

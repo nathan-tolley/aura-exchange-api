@@ -3,9 +3,9 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: 0.3 → membership guard for `/v1`
+- Step: 0.3 → two-exchange isolation test (the 0.3 check)
 - State: in progress
-- Next action: `src/v1/membership.ts`: `requireMembership(exchangeId)` → `403 NOT_A_MEMBER {exchangeId}` and a resource helper that answers `404 NOT_FOUND` for another exchange's listing/order/event. The signed-in user comes from 0.4, so this reads a `request.v1User` set by the (future) bearer guard; test with a stub
+- Next action: `tests/db/isolation.test.ts`: two exchanges with members, listings, trades, orders, feed, notifications, glossary; prove every scoped service and the legacy `/api` (Default only) return only their own exchange's data, and that `/api` can't act on another exchange's ids. Then tick 0.3
 - Uncommitted work: none
 - Waiting on Nathan:
   - Node 24 on the host? pnpm 11.25.0 needs Node ≥ 22.13; the host has 20.20.0. Checks run in a `node:24` container meanwhile (NOTES.md → Checks). Ask before changing the global Node.
@@ -25,3 +25,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-24 · 0.3 · Legacy `/api` smoke test (`tests/legacy/api-smoke.test.ts`, 9 console flows) green on the pre-0.3 schema, as a safety net.
 - 2026-10-24 · 0.3 · Migration 013 (exchanges, memberships, `person_stocks` → `listings`, `exchange_id` + `enforce_exchange_id` trigger on every game table); legacy `/api` scoped to the Default exchange; schema tests. 76 tests green.
 - 2026-10-24 · 0.3 · Worker per exchange (`src/jobs/schedulers.ts`, migration 014 for run-once keys), failures isolated per exchange, season-close query fixed. 81 tests green.
+- 2026-10-24 · 0.3 · `/v1` membership guard (403 NOT_A_MEMBER, 404 for foreign resources), idempotency scoped per user. 88 tests green.
