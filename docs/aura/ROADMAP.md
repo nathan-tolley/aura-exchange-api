@@ -22,7 +22,7 @@ Work top to bottom. Tick a box only when its check passes and `pnpm check` is gr
   - 2026-10-24: passes (run in a Node 24 container; see NOTES.md → Checks).
 
 ### 0.2 Error shape, idempotency, versioning plumbing
-- [ ] `AppError` and one error handler producing the `API-CONTRACT.md` shape. Map the existing `badRequest`/`forbidden` helpers onto it.
+- [x] `AppError` and one error handler producing the `API-CONTRACT.md` shape. Map the existing `badRequest`/`forbidden` helpers onto it.
 - [ ] Middleware that reads `X-App-Version` / `X-App-Build` and returns `426 UPDATE_REQUIRED` below `MIN_APP_BUILD` (env, default 1).
 - [ ] Idempotency: an `idempotency_keys` table and a preHandler for all `/v1` writes.
 - [ ] `GET /v1/health`.

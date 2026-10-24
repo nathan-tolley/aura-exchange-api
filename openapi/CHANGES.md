@@ -4,4 +4,5 @@ One line per change to `openapi/v1.yaml`, newest first. "App" says whether the a
 
 | Date | Change | App |
 | --- | --- | --- |
+| 2026-10-24 | `1.0.0-draft.2`: three additive error codes in `ErrorCode` and API-CONTRACT.md: `FORBIDDEN` (403), `CONFLICT` (409), `IDEMPOTENCY_IN_PROGRESS` (409, retryable, RETRY). | Yes: sync the spec; map the new codes in `strings.dart` (unknown codes already fall back to the generic screen) |
 | 2026-10-24 | Initial import of the handoff draft (`1.0.0-draft.1`): 49 paths, 53 operations, each tagged `x-phase`. | Already has this copy |

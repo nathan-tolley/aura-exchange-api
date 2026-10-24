@@ -62,11 +62,14 @@ Every non-2xx response has this body:
 | --- | --- | --- | --- | --- | --- |
 | 400 | `VALIDATION` | `field`, `rule` | no | NONE | inline field error |
 | 401 | `AUTH_EXPIRED` | | no | SIGN_IN | silent refresh, then sign-in |
+| 403 | `FORBIDDEN` | | no | NONE | generic "not allowed" (e.g. a moderator-only action) |
 | 403 | `NOT_A_MEMBER` | `exchangeId` | no | NONE | |
 | 403 | `SELF_TRADE` | `ticker` | no | NONE | trade button hidden on your own stock |
 | 404 | `NOT_FOUND` | `resource` | no | NONE | |
+| 409 | `CONFLICT` | | no | NONE | generic "that changed under you"; refetch |
 | 409 | `QUOTE_STALE` | `oldPrice`, `newPrice`, `changePct` | yes | REQUOTE | W06 requote |
 | 409 | `IDEMPOTENCY_MISMATCH` | | no | NONE | |
+| 409 | `IDEMPOTENCY_IN_PROGRESS` | | yes | RETRY | the first request with this key is still running; retry shortly with the same key |
 | 409 | `LISTING_HALTED` | `haltId`, `resumesAt` | no | WAIT | W10 halted |
 | 409 | `MARKET_CLOSED` | `opensAt`, `queuedEvents` | no | WAIT | W09 closed |
 | 409 | `ORDER_TYPE_NOT_ALLOWED` | `marketState` (limit orders only in PRE/AFTER) | no | NONE | trade sheet |

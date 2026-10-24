@@ -261,6 +261,9 @@ Plumbing decisions that are mine to make. Game rules go to `DECISIONS.md` instea
 
 - 2026-10-24: `/v1` lives under `src/v1/` as a Fastify plugin with the prefix `/v1`. The old `/api` routes are untouched.
 - 2026-10-24: one error handler for both surfaces. Requests under `/v1` get the contract shape `{ error: { code, message, params, retryable, action } }`; `/api` keeps its current `{ error, message, details }` body so the web console keeps working.
+- 2026-10-24: `AppError(code, statusCode, params, action, retryable, message, details)`. `appError(code, params)` fills status, action and retryable from the contract table in `src/errors.ts`; the legacy helpers (`badRequest`, …) still work. On `/v1`, `toContractError` translates anything thrown: legacy codes (e.g. `INSUFFICIENT_FUNDS` → `INSUFFICIENT_CASH`), Zod errors (`VALIDATION {field, rule}`), Fastify 4xx, the rate limiter (`RATE_LIMITED {retryAfterSeconds}`) and unknown errors (`SERVER {reference: requestId}`, details only in the log).
+- 2026-10-24: **fixed an existing `/api` bug.** `server.ts` called `setErrorHandler` after registering the routes, and Fastify binds the handler at registration, so the custom handler never ran for `/api`. Invalid input returned `500` with the raw Zod issues as the message. The handler now comes first: invalid input → `400 VALIDATION_ERROR`, `AppError`s → `{ error, message, details }`, Fastify's own 4xx pass through. The web console only reads `message`, which every shape has. Worth telling the friend: it's on his `master` too.
+- 2026-10-24: three additive error codes in the spec (`1.0.0-draft.2`): `FORBIDDEN`, `CONFLICT`, `IDEMPOTENCY_IN_PROGRESS`.
 
 ## Checks
 
