@@ -1,0 +1,24 @@
+# Local development database only (the API and worker run on the host or via scripts/pnpm-docker.ps1).
+# Port 5433 so it never collides with a native PostgreSQL on 5432.
+#   docker compose -f compose.dev.yaml up -d
+name: aura-exchange-dev
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aura_exchange
+      POSTGRES_USER: aura
+      POSTGRES_PASSWORD: aura_dev_password
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aura -d aura_exchange"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+volumes:
+  postgres_dev_data:

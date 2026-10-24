@@ -59,13 +59,15 @@ TypeScript (strict), Fastify 5, PostgreSQL 18, `pg`, `zod`, `decimal.js`, `jose`
 
 ```powershell
 pnpm install
-docker compose up -d db       # Postgres only, if you don't run it natively (check compose.yaml service name)
+docker compose -f compose.dev.yaml up -d   # dev Postgres on 127.0.0.1:5433 (5432 may be taken by a native install)
 pnpm migrate                  # runs db/migrations/*.sql in order
 pnpm dev:api                  # http://localhost:8787
 pnpm dev:worker               # schedulers, judge, and the engine tick once it exists
 pnpm test                     # vitest
 pnpm check                    # typecheck + tests + build; must pass before you call anything done
 ```
+
+`pnpm test` needs the dev Postgres running: `tests/global-setup.ts` drops and recreates `aura_test` and applies every migration on each run. Without Node 24 on the host, run any pnpm command through `powershell -File scripts/pnpm-docker.ps1 <args>` (see `docs/aura/NOTES.md` → Checks).
 
 Mock the app's view of the API from the spec at any time with `npx @stoplight/prism-cli mock openapi/v1.yaml`.
 

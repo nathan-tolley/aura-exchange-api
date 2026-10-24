@@ -267,6 +267,8 @@ Plumbing decisions that are mine to make. Game rules go to `DECISIONS.md` instea
 - 2026-10-24: version gate. A missing `X-App-Build` is allowed (the web console, curl, Prism); a non-integer → `400 VALIDATION {field: X-App-Build}`; below `MIN_APP_BUILD` → `426`. It applies to every `/v1` route, `/health` included (the spec lists 426 there).
 - 2026-10-24: maintenance. `MAINTENANCE_UNTIL` (env) in the future makes every `/v1` route except `/health` answer `503 MAINTENANCE {until, reference}`; `/health` stays `200` with `status: MAINTENANCE`. `/health` is `DEGRADED` when the worker heartbeat is missing or older than 30 s, and `lastGoodUpdate` is that heartbeat.
 - 2026-10-24: timestamps go out through `isoTime()` (`src/v1/serialize.ts`): UTC, whole seconds, `Z`.
+- 2026-10-24: contract tests. `tests/contract/openapi.ts` loads `openapi/v1.yaml` into ajv (2020-12 + formats) and validates a body by operation + status (`expectResponseMatchesSpec`) or by component schema (`expectSchema`). An undeclared status fails the test. A test keeps `errorCodes` in `src/errors.ts` equal to the spec's `ErrorCode` enum.
+- 2026-10-24: `applyMigrations(pool)` moved into `migration-service.ts`; `scripts/migrate.ts` and the test setup both use it.
 
 ## Checks
 
@@ -282,6 +284,14 @@ docker run --rm -e CI=true -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 `
 ```
 
 The build writes `dist-api/` and `web/dist/` into the repo folder; both are gitignored.
+
+Since 0.2 the wrapper is `scripts/pnpm-docker.ps1` (`powershell -File scripts/pnpm-docker.ps1 check`). The tests also need the dev database:
+
+```powershell
+docker compose -f compose.dev.yaml up -d    # postgres:18 on 127.0.0.1:5433 (a native PostgreSQL already holds 5432 on this PC)
+```
+
+`tests/global-setup.ts` drops and recreates `aura_test` (it refuses any name not ending in `_test`) and applies every migration, on every run. Inside the container the database is `host.docker.internal:5433`; on the host it's `localhost:5433`. Override with `TEST_DATABASE_URL`.
 
 ### Baseline, 2026-10-24 (0.1, untouched `aura-v1` = `49a0eaf` + docs)
 
