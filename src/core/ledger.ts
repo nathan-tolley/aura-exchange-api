@@ -7,6 +7,19 @@ export interface Posting {
   amount: Decimal.Value;
 }
 
+export function normalizeBalancedPostings(postings: Posting[]): Array<{accountKey:string;amount:Decimal}> {
+  if (postings.length < 2) throw new Error("A ledger transaction needs at least two postings");
+  const normalized = postings.map((item) => ({ ...item, amount: new Decimal(item.amount).toDecimalPlaces(8, Decimal.ROUND_HALF_EVEN) }));
+  const total = normalized.reduce<Decimal>((sum, item) => sum.plus(item.amount), new Decimal(0));
+  if (total.abs().gt("0.00000001")) throw new Error(`Unbalanced ledger transaction after 8-decimal normalization: ${total.toFixed(8)}`);
+  if (!total.isZero()) {
+    const correction = normalized.findLast((posting) => posting.amount.isNegative() === total.isPositive()) ?? normalized.at(-1)!;
+    correction.amount = correction.amount.minus(total);
+  }
+  if (normalized.some((posting)=>posting.amount.isZero())) throw new Error("Ledger postings must remain non-zero after normalization");
+  return normalized;
+}
+
 export async function postLedgerTransaction(
   client: PoolClient,
   kind: string,
@@ -14,14 +27,7 @@ export async function postLedgerTransaction(
   postings: Posting[],
   referenceId?: string
 ): Promise<string> {
-  if (postings.length < 2) throw new Error("A ledger transaction needs at least two postings");
-  const normalized = postings.map((item) => ({ ...item, amount: new Decimal(item.amount).toDecimalPlaces(8) }));
-  const total = normalized.reduce<Decimal>((sum, item) => sum.plus(item.amount), new Decimal(0));
-  if (total.abs().gt("0.00000005")) throw new Error(`Unbalanced ledger transaction: ${total.toString()}`);
-  if (!total.isZero()) {
-    const last = normalized.at(-1)!;
-    last.amount = new Decimal(last.amount).minus(total);
-  }
+  const normalized = normalizeBalancedPostings(postings);
 
   const transactionId = randomUUID();
   await client.query(
@@ -50,6 +56,7 @@ export const accounts = {
   poolCash: (stockId: string, seasonId: string) => `POOL:${stockId}:CASH:${seasonId}`,
   shortEscrow: (userId: string, stockId: string, seasonId: string) => `ESCROW:${userId}:${stockId}:${seasonId}`,
   limitEscrow: (orderId: string, seasonId: string) => `LIMIT:${orderId}:CASH:${seasonId}`,
+  predictionEscrow: (marketId:string,seasonId:string)=>`PREDICTION:${marketId}:ESCROW:${seasonId}`,
   fees: (seasonId: string) => `SYSTEM:FEES:${seasonId}`,
   issuance: (seasonId: string) => `SYSTEM:ISSUANCE:${seasonId}`
 };

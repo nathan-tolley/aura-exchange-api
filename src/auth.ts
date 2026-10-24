@@ -31,13 +31,13 @@ export async function verifyPassword(hash: string, password: string): Promise<bo
   }
 }
 
-export async function issueSession(client: PoolClient, userId: string): Promise<{ token: string; csrfToken: string }> {
+export async function issueSession(client: PoolClient, userId: string, context?: { userAgent?: string; ipAddress?: string }): Promise<{ token: string; csrfToken: string }> {
   const token = opaqueToken();
   const csrfToken = opaqueToken(24);
   await client.query(
-    `INSERT INTO sessions(user_id, token_hash, csrf_token, expires_at)
-     VALUES ($1, $2, $3, now() + interval '14 days')`,
-    [userId, hashToken(token), csrfToken]
+    `INSERT INTO sessions(user_id, token_hash, csrf_token, expires_at, user_agent, ip_address)
+     VALUES ($1, $2, $3, now() + interval '14 days', $4, $5)`,
+    [userId, hashToken(token), csrfToken, context?.userAgent?.slice(0, 500) ?? null, context?.ipAddress ?? null]
   );
   return { token, csrfToken };
 }
@@ -75,11 +75,12 @@ export async function loadSession(request: FastifyRequest): Promise<void> {
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        LEFT JOIN person_stocks ps ON ps.owner_user_id = u.id
-      WHERE s.token_hash = $1 AND s.expires_at > now()`,
+      WHERE s.token_hash = $1 AND s.expires_at > now() AND s.revoked_at IS NULL`,
     [hashToken(token)]
   );
   const row = result.rows[0];
   if (!row) return;
+  await pool.query("UPDATE sessions SET last_seen_at=now() WHERE token_hash=$1 AND last_seen_at<now()-interval '5 minutes'", [hashToken(token)]);
   request.auth = {
     id: row.id,
     username: row.username,

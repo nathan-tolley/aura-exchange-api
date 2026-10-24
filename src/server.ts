@@ -19,8 +19,14 @@ import { registerProfileRoutes } from "./routes/profile-routes.js";
 import { registerVoteRoutes } from "./routes/vote-routes.js";
 import { registerChatGPTRoutes } from "./routes/chatgpt-routes.js";
 import { registerAuraFarmingRoutes } from "./routes/aura-farming-routes.js";
+import {registerDerivativesRoutes} from "./routes/derivatives-routes.js";
+import { assertMigrationsCurrent } from "./services/migration-service.js";
+import { pool } from "./db.js";
+import { forbidden, unauthorized } from "./errors.js";
 
 const app = Fastify({ logger: { level: isProduction ? "info" : "debug" }, trustProxy: true });
+
+await assertMigrationsCurrent(pool);
 
 await app.register(cookie, { secret: config.SESSION_SECRET });
 await app.register(helmet, {
@@ -41,9 +47,22 @@ await app.register(multipart, { limits: { fileSize: 2 * 1024 * 1024, files: 1 } 
 
 app.decorateRequest("auth", null);
 app.addHook("preHandler", loadSession);
-app.addHook("onSend", async (_request, reply, payload) => {
+app.addHook("preHandler", async (request) => {
+  if (request.url.startsWith("/uploads/") && !request.auth) throw unauthorized();
+  if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+    const origin = request.headers.origin;
+    if (origin && origin !== new URL(config.APP_ORIGIN).origin) throw forbidden("Request origin is not allowed");
+  }
+});
+app.addHook("onSend", async (request, reply, payload) => {
   reply.header("X-Robots-Tag", "noindex, nofollow, noarchive");
+  if (!request.url.startsWith("/api/") && !request.url.startsWith("/assets/") && !request.url.startsWith("/uploads/")) {
+    reply.header("Cache-Control", "no-store, max-age=0");
+  }
   return payload;
+});
+app.addHook("onRequest", async (request) => {
+  request.log.info({ requestId: request.id, method: request.method, url: request.url }, "request.started");
 });
 
 await registerAuthRoutes(app);
@@ -55,6 +74,7 @@ await registerProfileRoutes(app);
 await registerVoteRoutes(app);
 await registerChatGPTRoutes(app);
 await registerAuraFarmingRoutes(app);
+await registerDerivativesRoutes(app);
 
 const uploadRoot = path.resolve("uploads");
 await app.register(fastifyStatic, { root: uploadRoot, prefix: "/uploads/", decorateReply: false });

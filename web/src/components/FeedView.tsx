@@ -23,7 +23,7 @@ export function FeedView({ items, ownStockId, onAuraClick, refresh, targetEventI
     }, 50);
     return () => window.clearTimeout(timer);
   }, [targetEventId, onTargetHandled]);
-  const shown = items.filter((item) => filter === "ALL" || (filter === "AURA" ? item.kind.startsWith("AURA") : item.kind === "TRADE"));
+  const shown = (Array.isArray(items)?items:[]).filter((item) => filter === "ALL" || (filter === "AURA" ? item.kind.startsWith("AURA") : item.kind === "TRADE"));
   return <section className="page-content">
     <header className="page-heading"><div><p className="eyebrow">THE GLOBAL TAPE</p><h1>Floor activity</h1><p>Rulings, positions, and market chaos in one stream.</p></div><button className="button primary" onClick={onAuraClick}><SparkIcon /> File aura</button></header>
     <div className="feed-toolbar segmented"><button className={filter==="ALL"?"active":""} onClick={()=>setFilter("ALL")}>All</button><button className={filter==="AURA"?"active":""} onClick={()=>setFilter("AURA")}>Aura</button><button className={filter==="TRADE"?"active":""} onClick={()=>setFilter("TRADE")}>Trades</button></div>

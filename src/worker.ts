@@ -8,6 +8,9 @@ import { accounts, postLedgerTransaction } from "./core/ledger.js";
 import { auraComposite, marketIndex, quoteTrade } from "./core/market.js";
 import { resolveExpiredAuraFarming } from "./services/aura-farming-service.js";
 import { processOpenLimitOrders } from "./services/limit-order-service.js";
+import { terminateOpenLimitOrders } from "./services/limit-order-lifecycle.js";
+import { notifyUser } from "./services/notification-service.js";
+import {settleExpiredOptions,settleSeasonDerivatives} from "./services/derivatives-service.js";
 
 interface JobRow { id: string; type: string; payload: Record<string, unknown>; attempts: number }
 const workerId = `${os.hostname()}:${process.pid}`;
@@ -248,6 +251,7 @@ async function liquidateUnsafeShorts(): Promise<void> {
          VALUES ($1,'LIQUIDATION',$2,$3,$4)`,
         [position.season_id,position.user_id,position.stock_id,JSON.stringify({tradeId,quantity:cover.quantity,price:cover.executionPrice})]
       );
+      await notifyUser(client,position.user_id,"SHORT_LIQUIDATED",{tradeId,stockId:position.stock_id,quantity:cover.quantity,price:cover.executionPrice});
     });
   }
 }
@@ -309,6 +313,48 @@ async function closeExpiredSeason(): Promise<void> {
     );
     const old = expired.rows[0];
     if (!old) return;
+    await terminateOpenLimitOrders(client, "season_id=$1", [old.id], "SEASON_CLOSED", "Limit order released at season close");
+    await settleSeasonDerivatives(client,old.id);
+    const standings = await client.query(
+      `WITH balances AS (
+         SELECT split_part(account_key,':',2)::uuid AS user_id,SUM(amount) AS cash
+           FROM cash_ledger_entries WHERE account_key LIKE 'USER:%:CASH:'||$1::text GROUP BY 1
+       ), exposure AS (
+         SELECT p.user_id,SUM(p.long_qty*(mp.credit_reserve/mp.share_reserve)+p.short_proceeds+p.short_collateral-p.short_qty*(mp.credit_reserve/mp.share_reserve)) AS value
+           FROM positions p JOIN market_pools mp ON mp.season_id=p.season_id AND mp.stock_id=p.stock_id
+          WHERE p.season_id=$1 GROUP BY p.user_id
+       )
+       SELECT u.id,ps.display_name,ps.ticker::text,ps.seasonal_aura::text,
+              (COALESCE(b.cash,0)+COALESCE(e.value,0))::text AS net_worth
+         FROM users u JOIN person_stocks ps ON ps.owner_user_id=u.id
+         LEFT JOIN balances b ON b.user_id=u.id LEFT JOIN exposure e ON e.user_id=u.id
+        WHERE ps.is_active=true ORDER BY COALESCE(b.cash,0)+COALESCE(e.value,0) DESC`, [old.id]
+    );
+    await client.query("INSERT INTO season_results(season_id,snapshot) VALUES ($1,$2) ON CONFLICT(season_id) DO NOTHING",[old.id,JSON.stringify({standings:standings.rows})]);
+    const closingPositions=await client.query<{id:string;user_id:string;stock_id:string;long_qty:string;short_qty:string;short_proceeds:string;short_collateral:string;price:string}>(
+      `SELECT p.id,p.user_id,p.stock_id,p.long_qty::text,p.short_qty::text,p.short_proceeds::text,p.short_collateral::text,
+              (mp.credit_reserve/mp.share_reserve)::text AS price
+         FROM positions p JOIN market_pools mp ON mp.season_id=p.season_id AND mp.stock_id=p.stock_id
+        WHERE p.season_id=$1 AND (p.long_qty>0 OR p.short_qty>0) FOR UPDATE OF p`,[old.id]
+    );
+    for(const position of closingPositions.rows){
+      const price=new Decimal(position.price),longValue=price.mul(position.long_qty);
+      if(longValue.gt(0))await postLedgerTransaction(client,"SEASON_LONG_SETTLEMENT","Long position settled at season close",[
+        {accountKey:accounts.userCash(position.user_id,old.id),amount:longValue},
+        {accountKey:accounts.issuance(old.id),amount:longValue.negated()}
+      ],position.id);
+      const available=new Decimal(position.short_proceeds).plus(position.short_collateral),liability=price.mul(position.short_qty);
+      if(available.gt(0)){
+        const refund=Decimal.max(0,available.minus(liability));
+        const absorbed=available.minus(refund);
+        await postLedgerTransaction(client,"SEASON_SHORT_SETTLEMENT","Short position settled at season close",[
+          {accountKey:accounts.shortEscrow(position.user_id,position.stock_id,old.id),amount:available.negated()},
+          ...(refund.gt(0)?[{accountKey:accounts.userCash(position.user_id,old.id),amount:refund}]:[]),
+          ...(absorbed.gt(0)?[{accountKey:accounts.issuance(old.id),amount:absorbed}]:[])
+        ],position.id);
+      }
+      await client.query(`UPDATE positions SET long_qty=0,avg_long_cost=0,short_qty=0,avg_short_entry=0,short_proceeds=0,short_collateral=0,updated_at=now() WHERE id=$1`,[position.id]);
+    }
     await client.query("UPDATE seasons SET status='CLOSED',closed_at=now() WHERE id=$1", [old.id]);
     const next = await one<{ id: string }>(client,
       `INSERT INTO seasons(season_number,name,starts_at,ends_at) VALUES ($1,$2,now(),now()+interval '8 weeks') RETURNING id`,
@@ -340,6 +386,7 @@ async function runSchedulers(): Promise<void> {
   await runOnce(`indices:${fiveMinuteKey}`, snapshotIndices);
   await runOnce(`liquidations:${minuteKey}`, liquidateUnsafeShorts);
   await runOnce(`aura-farming:${minuteKey}`, resolveExpiredAuraFarming);
+  await runOnce(`option-settlement:${minuteKey}`,settleExpiredOptions);
   await runOnce(`season-check:${dateKey}:${parts.hour}`, closeExpiredSeason);
   if (parts.weekday === "Mon" && Number(parts.hour) >= 9) {
     await runOnce(`allowance:${dateKey}`, () => grantAllowance(dateKey));
@@ -367,6 +414,12 @@ async function processJob(job: JobRow): Promise<void> {
 
 async function main(): Promise<void> {
   console.log(`Aura worker ${workerId} started`);
+  const recovered=await pool.query(
+    `UPDATE jobs SET status='PENDING',locked_at=NULL,locked_by=NULL,run_after=now(),updated_at=now(),
+            last_error=COALESCE(last_error||E'\n','')||'Recovered after worker restart'
+      WHERE status='RUNNING' AND locked_at<now()-interval '5 minutes' RETURNING id`
+  );
+  if(recovered.rowCount) console.warn(`Recovered ${recovered.rowCount} stale jobs`);
   for (;;) {
     await pool.query(
       `INSERT INTO system_state(key,value,updated_at) VALUES ('worker_heartbeat',$1,now())

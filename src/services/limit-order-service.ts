@@ -4,6 +4,7 @@ import type {PoolClient} from "pg";
 import {accounts,postLedgerTransaction} from "../core/ledger.js";
 import {marketAuraAdjustment,quoteTrade,reserveVersion} from "../core/market.js";
 import {one,pool,withTransaction} from "../db.js";
+import {notifyUser} from "./notification-service.js";
 
 interface LimitOrder { id:string;season_id:string;user_id:string;stock_id:string;side:"BUY"|"SELL";quantity:string;limit_price:string;reserved_cash:string }
 
@@ -68,5 +69,6 @@ async function fillLimitOrder(id:string):Promise<void>{
     await client.query("INSERT INTO market_price_ticks(season_id,stock_id,price,cause,reference_id,is_synthetic) VALUES($1,$2,$3,'TRADE',$4,false)",[order.season_id,order.stock_id,nextPrice.toFixed(8),tradeId]);
     await client.query("INSERT INTO feed_events(season_id,kind,actor_id,subject_stock_id,payload) VALUES($1,'TRADE',$2,$3,$4)",[order.season_id,order.user_id,order.stock_id,JSON.stringify({tradeId,limitOrderId:order.id,side:order.side,quantity:quote.quantity,price:quote.executionPrice,auraImpact:auraImpact.toNumber()})]);
     await client.query("UPDATE limit_orders SET status='FILLED',filled_trade_id=$1,filled_at=now(),updated_at=now() WHERE id=$2",[tradeId,order.id]);
+    await notifyUser(client,order.user_id,"LIMIT_ORDER_FILLED",{orderId:order.id,tradeId,stockId:order.stock_id,side:order.side,quantity:quote.quantity,price:quote.executionPrice});
   });
 }

@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { Decimal } from "decimal.js";
 import { accounts, postLedgerTransaction } from "../core/ledger.js";
 import { one } from "../db.js";
+import { terminateOpenLimitOrders } from "./limit-order-lifecycle.js";
 
 export async function delistStock(client: PoolClient, stockId: string, actorId: string): Promise<void> {
   const market = await one<{ id: string; season_id: string; price: string }>(client,
@@ -10,6 +11,7 @@ export async function delistStock(client: PoolClient, stockId: string, actorId: 
       WHERE mp.stock_id=$1 FOR UPDATE`, [stockId]
   );
   const price = new Decimal(market.price);
+  await terminateOpenLimitOrders(client, "stock_id=$1 AND season_id=$2", [stockId, market.season_id], "DELISTED", "Limit order released because the listing was delisted");
   const positions = await client.query<{
     id: string; user_id: string; long_qty: string; short_qty: string; short_proceeds: string; short_collateral: string;
   }>("SELECT id,user_id,long_qty::text,short_qty::text,short_proceeds::text,short_collateral::text FROM positions WHERE season_id=$1 AND stock_id=$2 FOR UPDATE", [market.season_id, stockId]);
@@ -26,10 +28,11 @@ export async function delistStock(client: PoolClient, stockId: string, actorId: 
     const liability = price.mul(position.short_qty);
     if (available.gt(0)) {
       const refund = Decimal.max(0, available.minus(liability));
+      const absorbed = available.minus(refund);
       await postLedgerTransaction(client, "DELIST_SHORT_SETTLEMENT", "Short position settled at pre-freeze mark", [
         { accountKey: accounts.shortEscrow(position.user_id, stockId, market.season_id), amount: available.negated() },
         ...(refund.gt(0) ? [{ accountKey: accounts.userCash(position.user_id, market.season_id), amount: refund }] : []),
-        { accountKey: accounts.issuance(market.season_id), amount: available.minus(refund) }
+        ...(absorbed.gt(0) ? [{ accountKey: accounts.issuance(market.season_id), amount: absorbed }] : [])
       ], position.id);
     }
     await client.query(

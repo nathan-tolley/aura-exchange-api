@@ -22,6 +22,7 @@ export interface Stock {
 }
 
 export interface Market { stocks: Stock[]; auraComposite: number; marketIndex: number }
+export interface CompositeStock {ticker:string;name:string;current:number;open:number;high:number;low:number;change:number;points:Array<{timestamp:string;value:number}>}
 
 export interface FeedItem {
   id: string;

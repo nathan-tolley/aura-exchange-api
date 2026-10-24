@@ -22,7 +22,7 @@ export function TradePanel({stock,portfolio,ownStockId,onClose,onTraded}:{stock:
   const disabled=ownStockId===stock.id,q=Number(quantity);
   const isLimit=mode==="LIMIT"&&(side==="BUY"||side==="SELL"),limit=Number(limitPrice),reservedEstimate=q*limit*1.005;
 
-  async function loadOrders(){try{const data=await api<{items:LimitOrder[]}>("/api/limit-orders");setOrders(data.items.filter(item=>item.stock_id===stock.id))}catch{/* main ticket remains usable */}}
+  async function loadOrders(){try{const data=await api<{items:LimitOrder[]}>("/api/limit-orders");setOrders((Array.isArray(data.items)?data.items:[]).filter(item=>item.stock_id===stock.id))}catch{/* main ticket remains usable */}}
   useEffect(()=>{loadOrders()},[stock.id]);
 
   useEffect(()=>{

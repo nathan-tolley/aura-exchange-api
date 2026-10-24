@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { createAuraJudge } from "../ai/judge.js";
 import { one, withTransaction } from "../db.js";
+import { notifyStockOwner } from "./notification-service.js";
 
 const hardFlags = new Set([
   "credible_threat",
@@ -51,6 +52,7 @@ export async function applyAuraEntry(
       authorId: submission.author_id
     })]
   );
+  await notifyStockOwner(client, submission.subject_stock_id, "AURA_RULING", { submissionId: submission.id, delta, rationale });
 }
 
 export async function processAuraSubmission(

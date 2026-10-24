@@ -10,11 +10,30 @@ import { portfolioTotals } from "../services/portfolio-service.js";
 import { serializeFeedEvent, type FeedRow } from "../services/feed-service.js";
 import { replayPriceHistory, type HistoricalTrade } from "../core/price-history.js";
 import { notFound } from "../errors.js";
+import { migrationStatus } from "../services/migration-service.js";
 
 export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
   app.get("/healthz", async () => {
     await pool.query("SELECT 1");
     return { status: "ok" };
+  });
+
+  app.get("/api/notifications", { preHandler: guard() }, async (request) => {
+    const result = await pool.query(
+      `SELECT id,kind,payload,read_at,created_at FROM notifications
+        WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50`, [request.auth!.id]
+    );
+    return { items: result.rows, unread: result.rows.filter((row: { read_at: Date | null }) => !row.read_at).length };
+  });
+
+  app.post("/api/notifications/:id/read", { preHandler: guard({ csrf: true }) }, async (request) => {
+    const id = String((request.params as { id?: string }).id ?? "");
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw notFound("Notification not found");
+    const result = await pool.query(
+      "UPDATE notifications SET read_at=COALESCE(read_at,now()) WHERE id=$1 AND user_id=$2", [id, request.auth!.id]
+    );
+    if (!result.rowCount) throw notFound("Notification not found");
+    return { ok: true };
   });
 
   app.get("/api/market", { preHandler: guard() }, async () => {
@@ -46,6 +65,25 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
       auraComposite: auraComposite(result.rows.map((row) => Number(row.seasonal_aura) - 100)),
       marketIndex: marketIndex(result.rows.map((row) => new Decimal(row.price).div(row.opening_price)))
     };
+  });
+
+  app.get("/api/composite", { preHandler: guard() }, async () => {
+    const seasonResult = await pool.query<{id:string;starts_at:Date}>("SELECT id,starts_at FROM seasons WHERE status='ACTIVE'");
+    const season=seasonResult.rows[0];
+    if(!season)return {ticker:"AURA",name:"Aura Composite",current:100,open:100,high:100,low:100,change:0,points:[]};
+    const stocks=await pool.query<{seasonal_aura:string}>("SELECT seasonal_aura::text FROM person_stocks WHERE is_active=true");
+    const current=auraComposite(stocks.rows.map(row=>Number(row.seasonal_aura)-100));
+    const history=await pool.query<{created_at:Date;aura_composite:string}>(
+      `SELECT captured_at AS created_at,aura_composite::text FROM index_snapshots WHERE season_id=$1
+       ORDER BY captured_at DESC LIMIT 2016`,[season.id]);
+    const points=history.rows.reverse().map(row=>({timestamp:row.created_at.toISOString(),value:Number(row.aura_composite)}));
+    if(!points.length)points.push({timestamp:season.starts_at.toISOString(),value:100});
+    points.push({timestamp:new Date().toISOString(),value:current});
+    const dayCutoff=Date.now()-24*60*60*1000;
+    const dayPoints=points.filter(point=>new Date(point.timestamp).getTime()>=dayCutoff);
+    const visible=dayPoints.length>1?dayPoints:points;
+    const values=visible.map(point=>point.value),open=visible[0]?.value??100;
+    return {ticker:"AURA",name:"Aura Composite",current,open,high:Math.max(...values),low:Math.min(...values),change:current-open,points};
   });
 
   app.get("/api/portfolio", { preHandler: guard() }, async (request) => {
@@ -251,6 +289,14 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
     const dbStarted = performance.now();
     await pool.query("SELECT 1");
     const worker = await pool.query<{ updated_at: Date }>("SELECT updated_at FROM system_state WHERE key='worker_heartbeat'");
+    const migrations = await migrationStatus(pool);
+    const jobs = await pool.query<{ status:string;count:number;oldest:Date|null }>(
+      `SELECT status,COUNT(*)::int AS count,MIN(created_at) AS oldest FROM jobs
+        WHERE status IN ('PENDING','RUNNING','FAILED') GROUP BY status`
+    );
+    const scheduler = await pool.query<{ completed_at:Date }>("SELECT completed_at FROM scheduled_runs ORDER BY completed_at DESC LIMIT 1");
+    const chatgpt = await pool.query<{ count:number }>("SELECT COUNT(*)::int AS count FROM chatgpt_connections");
+    const restore = await pool.query<{ value:Record<string,unknown>;updated_at:Date }>("SELECT value,updated_at FROM system_state WHERE key='restore_test'");
     let newestBackup: Date | null = null;
     try {
       const dir = path.resolve("backups");
@@ -263,9 +309,13 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
     } catch { /* backup folder can be unavailable in development */ }
     return {
       database: { ok: true, latencyMs: Math.round(performance.now() - dbStarted) },
+      migrations,
       worker: { ok: Boolean(worker.rows[0] && Date.now() - worker.rows[0].updated_at.getTime() < 30_000), lastSeenAt: worker.rows[0]?.updated_at ?? null },
-      ai: { configured: Boolean(process.env.OPENAI_API_KEY) || process.env.AI_PROVIDER === "fake", provider: process.env.AI_PROVIDER ?? "fake" },
-      backup: { latestAt: newestBackup, stale: !newestBackup || Date.now() - newestBackup.getTime() > 36 * 60 * 60 * 1000 }
+      scheduler: { ok: Boolean(scheduler.rows[0] && Date.now()-scheduler.rows[0].completed_at.getTime()<10*60*1000), lastRunAt:scheduler.rows[0]?.completed_at??null },
+      jobs: Object.fromEntries(jobs.rows.map((row)=>[row.status.toLowerCase(),{count:row.count,oldestAt:row.oldest}])),
+      ai: { configured: Boolean(process.env.OPENAI_API_KEY) || process.env.AI_PROVIDER === "fake" || Number(chatgpt.rows[0]?.count??0)>0, provider: process.env.AI_PROVIDER ?? "fake", chatgptConnections:Number(chatgpt.rows[0]?.count??0) },
+      backup: { latestAt: newestBackup, stale: !newestBackup || Date.now() - newestBackup.getTime() > 36 * 60 * 60 * 1000, restoreTest:restore.rows[0]?.value??null, restoreStatusUpdatedAt:restore.rows[0]?.updated_at??null },
+      transport: { secure: new URL(process.env.APP_ORIGIN??"http://localhost").protocol==="https:", origin:process.env.APP_ORIGIN??"http://localhost" }
     };
   });
 }

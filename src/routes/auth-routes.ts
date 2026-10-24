@@ -20,6 +20,10 @@ const credentialsSchema = z.object({
 });
 
 export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
+  const sessionContext = (request: { headers: Record<string, unknown>; ip: string }) => ({
+    userAgent: typeof request.headers["user-agent"] === "string" ? request.headers["user-agent"] : undefined,
+    ipAddress: request.ip
+  });
   app.get("/api/setup/status", async () => {
     const result = await pool.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM users");
     return { needsSetup: Number(result.rows[0]?.count ?? 0) === 0 };
@@ -68,7 +72,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
          VALUES ($1, 'SEASON_STARTED', $2, $3, $4)`,
         [season.id, user.id, stock.id, JSON.stringify({ seasonName: "Season 1" })]
       );
-      const session = await issueSession(client, user.id);
+      const session = await issueSession(client, user.id, sessionContext(request));
       return { ...session, userId: user.id };
     });
 
@@ -101,7 +105,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
     const session = await withTransaction(async (client) => {
       await client.query("UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE id = $1", [user.id]);
-      return issueSession(client, user.id);
+      return issueSession(client, user.id, sessionContext(request));
     });
     setSessionCookie(reply, session.token);
     return { ok: true, csrfToken: session.csrfToken };
@@ -140,7 +144,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
          VALUES ($1, 'MEMBER_JOINED', $2, $3, $4)`,
         [season.id, user.id, stock.id, JSON.stringify({ displayName: stock.display_name })]
       );
-      return issueSession(client, user.id);
+      return issueSession(client, user.id, sessionContext(request));
     });
     setSessionCookie(reply, result.token);
     reply.code(201);
@@ -170,6 +174,37 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/api/auth/session", { preHandler: guard() }, async (request) => ({ user: request.auth }));
+
+  app.get("/api/auth/sessions", { preHandler: guard() }, async (request) => {
+    const currentHash = request.cookies.aura_session ? hashToken(request.cookies.aura_session) : "";
+    const result = await pool.query(
+      `SELECT id,user_agent,host(ip_address) AS ip_address,created_at,last_seen_at,expires_at,
+              token_hash=$2 AS is_current
+         FROM sessions
+        WHERE user_id=$1 AND expires_at>now() AND revoked_at IS NULL
+        ORDER BY last_seen_at DESC`,
+      [request.auth!.id, currentHash]
+    );
+    return { items: result.rows };
+  });
+
+  app.post("/api/auth/sessions/:id/revoke", { preHandler: guard({ csrf: true }) }, async (request, reply) => {
+    const params = z.object({ id: z.string().uuid() }).parse(request.params);
+    const currentHash = request.cookies.aura_session ? hashToken(request.cookies.aura_session) : "";
+    const result = await pool.query<{ is_current:boolean }>(
+      `UPDATE sessions SET revoked_at=now()
+        WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL
+        RETURNING token_hash=$3 AS is_current`,
+      [params.id, request.auth!.id, currentHash]
+    );
+    if (!result.rowCount) throw badRequest("Session is no longer active", "SESSION_INACTIVE");
+    if (result.rows[0]?.is_current) clearSessionCookie(reply);
+    await pool.query(
+      "INSERT INTO audit_logs(actor_id,action,entity_type,entity_id) VALUES ($1,'SESSION_REVOKED','SESSION',$2)",
+      [request.auth!.id, params.id]
+    );
+    return { ok: true, signedOut: Boolean(result.rows[0]?.is_current) };
+  });
 
   app.post("/api/auth/logout", { preHandler: guard({ csrf: true }) }, async (request, reply) => {
     const token = request.cookies.aura_session;

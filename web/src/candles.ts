@@ -17,6 +17,14 @@ export interface Candle {
   feedEventIds: string[];
 }
 
+export const CANDLE_TIMEFRAMES = {
+  ONE_MINUTE: { label: "1m", intervalMs: 60_000, windowMs: 2 * 60 * 60_000 },
+  FIFTEEN_MINUTES: { label: "15m", intervalMs: 15 * 60_000, windowMs: 24 * 60 * 60_000 },
+  ONE_HOUR: { label: "1h", intervalMs: 60 * 60_000, windowMs: 7 * 24 * 60 * 60_000 }
+} as const;
+
+export type CandleTimeframe = keyof typeof CANDLE_TIMEFRAMES;
+
 export function buildCandles(ticks: PriceTick[], intervalMs: number): Candle[] {
   const ordered = [...ticks].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   const candles = new Map<number, Candle>();

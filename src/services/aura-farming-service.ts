@@ -1,7 +1,8 @@
 import type { PoolClient } from "pg";
 import { accounts, postLedgerTransaction } from "../core/ledger.js";
-import { one, withTransaction } from "../db.js";
+import { maybeOne, withTransaction } from "../db.js";
 import { applyAuraEntry } from "./aura-service.js";
+import { notifyStockOwner, notifyUser } from "./notification-service.js";
 
 type Choice = "SUPPORT" | "DECLINE" | "RECONSIDER";
 
@@ -20,12 +21,13 @@ export async function resolveExpiredAuraFarming():Promise<void> {
 
 async function resolvePoll(pollId:string):Promise<void> {
   await withTransaction(async(client:PoolClient)=>{
-    const poll=await one<PollRow>(client,
+    const poll=await maybeOne<PollRow>(client,
       `SELECT p.id,p.submission_id,p.ruling_id,s.season_id,s.author_id,s.subject_stock_id,s.explanation,s.status,
               r.verdict,r.delta,r.rationale
          FROM aura_swing_polls p JOIN aura_submissions s ON s.id=p.submission_id
          JOIN aura_rulings r ON r.id=p.ruling_id
         WHERE p.id=$1 AND p.status='OPEN' AND p.closes_at<=now() FOR UPDATE OF p,s`,[pollId]);
+    if(!poll)return;
     const counts=await client.query<{choice:Choice;count:number}>(
       "SELECT choice,COUNT(*)::int AS count FROM aura_swing_votes WHERE poll_id=$1 GROUP BY choice",[poll.id]);
     const count=(choice:Choice)=>counts.rows.find(row=>row.choice===choice)?.count??0;
@@ -45,6 +47,7 @@ async function resolvePoll(pollId:string):Promise<void> {
         {accountKey:accounts.userCash(voter.voter_id,poll.season_id),amount:100},
         {accountKey:accounts.issuance(poll.season_id),amount:-100}
       ],poll.id);
+      await notifyUser(client,voter.voter_id,"FARMING_REWARD",{pollId:poll.id,aura:2,credits:100});
     }
 
     if(outcome==="SUPPORT"){
@@ -63,5 +66,6 @@ async function resolvePoll(pollId:string):Promise<void> {
     await client.query(
       `INSERT INTO feed_events(season_id,kind,subject_stock_id,payload) VALUES ($1,'AURA_FARMING_RESOLVED',$2,$3)`,
       [poll.season_id,poll.subject_stock_id,JSON.stringify({pollId:poll.id,submissionId:poll.submission_id,outcome,support,decline,reconsider,voterCount:voters.rowCount})]);
+    await notifyStockOwner(client,poll.subject_stock_id,"FARMING_RESOLVED",{pollId:poll.id,outcome,support,decline,reconsider});
   });
 }

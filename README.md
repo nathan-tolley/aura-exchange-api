@@ -17,6 +17,9 @@ It is fictional entertainment—not a performance system, factual record, securi
 - Responsive exchange dashboard, global tape, trade drawer, portfolio, leaderboards, and moderator operations console.
 - Expandable per-person stock history with season/day/week ranges, high and low markers, exact trade catalysts, and clearly separated Aura sentiment context.
 - Docker Compose deployment with internal PostgreSQL, worker, Caddy automatic HTTPS, health reporting, and backup/restore scripts.
+- Migration-gated startup, stale-job recovery, limit-order lifecycle settlement, immutable season-result snapshots, session revocation, notifications, admin diagnostics/export, and a pilot launch health panel.
+- Pooled YES/NO prediction markets with live implied odds, moderator resolution, automatic refunds, per-user exposure limits, and a 2% settlement fee.
+- System-issued Aura call and put options with 24-hour or seven-day expiries, live three-strike chains, capped purchases, fixed quotes, and automatic cash settlement.
 
 ## Local development
 
@@ -69,6 +72,8 @@ powershell -File scripts/restore.ps1 -BackupFile .\backups\aura_YYYY-MM-DD_HHMMS
 docker compose restart app worker
 ```
 
+For a non-destructive restore drill, use `scripts/test-restore.ps1`; it restores into a temporary `aura_restore_test` database, verifies core record counts, records the successful drill in Operations, and removes the temporary database. See [the pilot runbook](docs/PILOT-RUNBOOK.md) for backup scheduling, public-IP precautions, and incident response.
+
 ## Verification
 
 ```powershell
@@ -82,6 +87,7 @@ This runs strict server/client type checks, domain tests, and production builds.
 - The public feed serializer removes Aura author identity unless the viewer is the subject or a moderator.
 - AI outages retry twice and then create a human-review ruling without changing Aura.
 - Trades are idempotent and execute only against the exact reserves used to produce their quote.
+- Open predictions refund and open options settle at the current mark before a season closes, so no contract value is stranded across resets.
 - Permanent history still supports safety removal, account deletion, and withdrawal of consent.
 - A production launch should begin with the documented 5–8 person pilot and a completed backup restore test.
 

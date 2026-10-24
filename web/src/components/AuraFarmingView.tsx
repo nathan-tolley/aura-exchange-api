@@ -10,7 +10,8 @@ export function AuraFarmingView({ownStockId,onReward}:{ownStockId:string|null;on
   const load=useCallback(async()=>{try{setItems((await api<{items:FarmingItem[]}>("/api/aura-farming")).items);setError("")}catch(e){setError(e instanceof Error?e.message:"Could not load Aura Farming")}},[]);
   useEffect(()=>{load();const timer=window.setInterval(load,10_000);return()=>window.clearInterval(timer)},[load]);
   async function vote(id:string,choice:Choice){try{await api(`/api/aura-farming/${id}/vote`,{method:"POST",body:JSON.stringify({choice})});await load();await onReward()}catch(e){setError(e instanceof Error?e.message:"Vote failed")}}
-  const open=items.filter(item=>item.status==="OPEN"),resolved=items.filter(item=>item.status==="RESOLVED");
+  const safeItems=Array.isArray(items)?items:[];
+  const open=safeItems.filter(item=>item.status==="OPEN"),resolved=safeItems.filter(item=>item.status==="RESOLVED");
   return <section className="page-content farming-page"><header className="page-heading"><div><p className="eyebrow">COMMUNITY CONSENSUS</p><h1>Aura Farming</h1><p>Major AI swings spend one hour on the floor. Vote and earn +2 Aura and 100 AC when the poll settles.</p></div></header>{error&&<div className="form-error">{error}</div>}<div className="farming-list">{open.length===0&&<div className="panel empty-compact">No major swings are farming right now.</div>}{open.map(item=><FarmCard key={item.id} item={item} own={item.subject_stock_id===ownStockId} vote={vote}/>)}</div>{resolved.length>0&&<><div className="section-label">RECENT HARVESTS</div><div className="farming-list resolved">{resolved.slice(0,12).map(item=><FarmCard key={item.id} item={item} own={false} vote={vote}/>)}</div></>}</section>;
 }
 
