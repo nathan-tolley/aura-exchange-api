@@ -16,7 +16,7 @@ Work top to bottom. Tick a box only when its check passes and `pnpm check` is gr
   - `openapi.yaml` goes to `openapi/v1.yaml`, with a new `openapi/CHANGES.md`.
   - Start `docs/aura/PROGRESS.md` (see `CLAUDE.md` → Progress and resuming).
   - Commit this on its own.
-- [ ] Read the friend's new code since `5cb2b21` and write `docs/aura/NOTES.md` → "What exists".
+- [x] Read the friend's new code since `5cb2b21` and write `docs/aura/NOTES.md` → "What exists".
   - List every route, table and job, and map each to the `/v1` operation or engine piece it becomes (keep / adapt / replace / drop).
 - [ ] Run the existing tests. **Check:** `pnpm check` passes on the untouched branch, or the failures are written down in NOTES.md.
 

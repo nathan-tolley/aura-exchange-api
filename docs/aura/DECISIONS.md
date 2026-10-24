@@ -62,3 +62,4 @@ What's settled, what changed since the plan, and what's still open. When this fi
 7. **Hosting.** Fly.io, Railway or Render (plan says pick one; US-East)?
 8. **Email provider** for sign-in codes (e.g. Resend or Postmark). In development, codes are printed to the server log.
 9. **Paid Apple Developer account later?** That unlocks push, Sign in with Apple, TestFlight and the App Store.
+10. **Prediction markets and options** (added 2026-10-24 by the API session). The friend's latest commit (`49a0eaf`) added pooled YES/NO prediction markets and system-issued call/put options to the web version. Neither is in the `/v1` contract; PLAN.md has options in Phase 3 and doesn't mention prediction markets. Proposed default: keep both working on `/api` for the web console, leave them out of `/v1` until you decide. Do you want either in the app, and when?
