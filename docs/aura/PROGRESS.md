@@ -3,9 +3,9 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: 0.3 → two-exchange isolation test (the 0.3 check)
-- State: in progress
-- Next action: `tests/db/isolation.test.ts`: two exchanges with members, listings, trades, orders, feed, notifications, glossary; prove every scoped service and the legacy `/api` (Default only) return only their own exchange's data, and that `/api` can't act on another exchange's ids. Then tick 0.3
+- Step: 0.3 → finish the isolation check: legacy `/api` against a second exchange
+- State: in progress (DB-wide isolation audit done and green)
+- Next action: extend `tests/legacy/api-smoke.test.ts` with a final describe: create exchange X (owner also listed there, plus a member only in X, a feed item, glossary entry, prediction market, notification), then assert `/api` market/feed/leaderboards/roster/session/glossary/predictions/notifications show only Default data, and quote/limit/history/invite/delist/reset-code/aura-event/bet with X's ids → 404/403. Then tick 0.3's `minListingsToOpen` and Check boxes and start 0.4
 - Uncommitted work: none
 - Waiting on Nathan:
   - Node 24 on the host? pnpm 11.25.0 needs Node ≥ 22.13; the host has 20.20.0. Checks run in a `node:24` container meanwhile (NOTES.md → Checks). Ask before changing the global Node.
@@ -26,3 +26,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-24 · 0.3 · Migration 013 (exchanges, memberships, `person_stocks` → `listings`, `exchange_id` + `enforce_exchange_id` trigger on every game table); legacy `/api` scoped to the Default exchange; schema tests. 76 tests green.
 - 2026-10-24 · 0.3 · Worker per exchange (`src/jobs/schedulers.ts`, migration 014 for run-once keys), failures isolated per exchange, season-close query fixed. 81 tests green.
 - 2026-10-24 · 0.3 · `/v1` membership guard (403 NOT_A_MEMBER, 404 for foreign resources), idempotency scoped per user. 88 tests green.
+- 2026-10-24 · 0.3 · DB-wide isolation audit (`tests/db/isolation.test.ts`): every season/listing-referencing table has `exchange_id` + trigger, no cross-exchange rows, cross-exchange writes refused. 92 tests green.
