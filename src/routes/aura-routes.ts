@@ -23,13 +23,13 @@ export async function registerAuraRoutes(app: FastifyInstance): Promise<void> {
 
     const submission = await withTransaction(async (client) => {
       const subject = await maybeOne<{ id: string }>(client,
-        "SELECT id FROM person_stocks WHERE id = $1 AND is_active = true AND consented_at IS NOT NULL", [input.subjectId]
+        "SELECT id FROM listings WHERE id = $1 AND exchange_id = $2 AND is_active = true AND consented_at IS NOT NULL", [input.subjectId, auth.exchangeId]
       );
       if (!subject) throw notFound("That Aura stock is not active");
-      const season = await one<{ id: string }>(client, "SELECT id FROM seasons WHERE status = 'ACTIVE'");
+      const season = await one<{ id: string }>(client, "SELECT id FROM seasons WHERE exchange_id = $1 AND status = 'ACTIVE'", [auth.exchangeId]);
       const rates = await one<{ total: string }>(client,
         `SELECT COUNT(*) FILTER (WHERE created_at >= now() - interval '24 hours')::text AS total
-           FROM aura_submissions WHERE author_id = $1`, [auth.id]
+           FROM aura_submissions WHERE author_id = $1 AND exchange_id = $2`, [auth.id, auth.exchangeId]
       );
       if (Number(rates.total) >= DAILY_AURA_SUBMISSION_LIMIT) {
         throw badRequest(`Daily Aura submission limit of ${DAILY_AURA_SUBMISSION_LIMIT} reached`, "RATE_LIMITED");
@@ -57,9 +57,9 @@ export async function registerAuraRoutes(app: FastifyInstance): Promise<void> {
     const result = await withTransaction(async (client) => {
       const submission = await maybeOne<{ id: string; subject_stock_id: string; created_at: Date }>(client,
         `SELECT s.id, s.subject_stock_id, s.created_at FROM aura_submissions s
-          JOIN person_stocks ps ON ps.id = s.subject_stock_id
-         WHERE s.id = $1 AND ps.owner_user_id = $2 AND s.created_at >= now() - interval '7 days'`,
-        [params.id, auth.id]
+          JOIN listings ps ON ps.id = s.subject_stock_id
+         WHERE s.id = $1 AND ps.owner_user_id = $2 AND s.exchange_id = $3 AND s.created_at >= now() - interval '7 days'`,
+        [params.id, auth.id, auth.exchangeId]
       );
       if (!submission) throw forbidden("Only the subject can appeal within seven days");
       const appeal = await one<{ id: string }>(client,
@@ -79,7 +79,7 @@ export async function registerAuraRoutes(app: FastifyInstance): Promise<void> {
     return result;
   });
 
-  app.get("/api/moderation/review", { preHandler: guard({ roles: ["OWNER", "MODERATOR"] }) }, async () => {
+  app.get("/api/moderation/review", { preHandler: guard({ roles: ["OWNER", "MODERATOR"] }) }, async (request) => {
     const result = await pool.query(
       `SELECT s.id, s.status, s.explanation, s.created_at, ps.display_name, ps.ticker::text,
               r.id AS ruling_id, r.verdict, r.delta, r.confidence, r.rationale, r.category, r.policy_flags,
@@ -87,14 +87,14 @@ export async function registerAuraRoutes(app: FastifyInstance): Promise<void> {
               CASE WHEN latest_job.last_error ILIKE '%no credits remaining%' THEN 'OpenAI API credits are exhausted.'
                    WHEN latest_job.last_error IS NOT NULL THEN 'The AI provider could not complete this ruling.' END AS ai_error
          FROM aura_submissions s
-         JOIN person_stocks ps ON ps.id = s.subject_stock_id
+         JOIN listings ps ON ps.id = s.subject_stock_id
          LEFT JOIN aura_rulings r ON r.submission_id = s.id AND r.is_current
          LEFT JOIN LATERAL (
            SELECT j.last_error FROM jobs j
             WHERE j.type='JUDGE_AURA' AND j.payload->>'submissionId'=s.id::text
             ORDER BY j.created_at DESC LIMIT 1
          ) latest_job ON true
-        WHERE s.status IN ('REVIEW', 'APPEALED') ORDER BY s.created_at`
+        WHERE s.status IN ('REVIEW', 'APPEALED') AND s.exchange_id = $1 ORDER BY s.created_at`, [request.auth!.exchangeId]
     );
     return { items: result.rows };
   });
@@ -113,7 +113,7 @@ export async function registerAuraRoutes(app: FastifyInstance): Promise<void> {
     await withTransaction(async (client) => {
       const submission = await one<{
         id: string; season_id: string; author_id: string; subject_stock_id: string; explanation: string; status: string;
-      }>(client, "SELECT * FROM aura_submissions WHERE id = $1 FOR UPDATE", [params.id]);
+      }>(client, "SELECT * FROM aura_submissions WHERE id = $1 AND exchange_id = $2 FOR UPDATE", [params.id, auth.exchangeId]);
       const ruling = await maybeOne<{ id: string; delta: number; rationale: string; provider: string }>(client,
         "SELECT id, delta, rationale, provider FROM aura_rulings WHERE submission_id = $1 AND is_current", [params.id]
       );
@@ -136,7 +136,7 @@ export async function registerAuraRoutes(app: FastifyInstance): Promise<void> {
             [submission.season_id, submission.subject_stock_id, submission.id, ruling.id, previous.id, -previous.delta, input.note, auth.id]
           );
           await client.query(
-            "UPDATE person_stocks SET seasonal_aura = seasonal_aura - $1, career_aura = career_aura - $1 WHERE id = $2",
+            "UPDATE listings SET seasonal_aura = seasonal_aura - $1, career_aura = career_aura - $1 WHERE id = $2",
             [previous.delta, submission.subject_stock_id]
           );
         }
@@ -153,8 +153,8 @@ export async function registerAuraRoutes(app: FastifyInstance): Promise<void> {
         "UPDATE aura_rulings SET reviewed_by = $1, reviewed_at = now() WHERE id = $2", [auth.id, ruling.id]
       );
       await client.query(
-        `INSERT INTO moderation_actions(moderator_id, action, target_type, target_id, reason)
-         VALUES ($1,$2,'AURA_SUBMISSION',$3,$4)`, [auth.id, input.action, params.id, input.note]
+        `INSERT INTO moderation_actions(exchange_id, moderator_id, action, target_type, target_id, reason)
+         SELECT exchange_id,$1,$2,'AURA_SUBMISSION',id,$3 FROM aura_submissions WHERE id=$4`, [auth.id, input.action, input.note, params.id]
       );
     });
     return { ok: true };

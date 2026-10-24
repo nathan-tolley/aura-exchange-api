@@ -101,8 +101,8 @@ export async function registerTradeRoutes(app: FastifyInstance): Promise<void> {
     const result=await pool.query(
       `SELECT o.id,o.stock_id,o.side,o.quantity::text,o.limit_price::text,o.status,o.created_at,o.filled_at,o.canceled_at,
               ps.display_name,ps.ticker::text
-         FROM limit_orders o JOIN person_stocks ps ON ps.id=o.stock_id
-        WHERE o.user_id=$1 ORDER BY (o.status='OPEN') DESC,o.created_at DESC LIMIT 50`,[auth.id]);
+         FROM limit_orders o JOIN listings ps ON ps.id=o.stock_id
+        WHERE o.user_id=$1 AND o.exchange_id=$2 ORDER BY (o.status='OPEN') DESC,o.created_at DESC LIMIT 50`,[auth.id,auth.exchangeId]);
     return {items:result.rows};
   });
 
@@ -110,7 +110,7 @@ export async function registerTradeRoutes(app: FastifyInstance): Promise<void> {
     const input=z.object({stockId:z.string().uuid(),side:z.enum(["BUY","SELL"]),quantity:z.coerce.number().positive().max(100_000),limitPrice:z.coerce.number().positive()}).parse(request.body);
     const auth=request.auth!;if(auth.stockId===input.stockId)throw forbidden("You cannot trade your own Aura stock");
     const order=await withTransaction(async client=>{
-      const market=await maybeOne<PoolRow>(client,`SELECT mp.* FROM market_pools mp JOIN seasons s ON s.id=mp.season_id JOIN person_stocks ps ON ps.id=mp.stock_id WHERE mp.stock_id=$1 AND s.status='ACTIVE' AND ps.is_active=true FOR UPDATE OF mp`,[input.stockId]);
+      const market=await maybeOne<PoolRow>(client,`SELECT mp.* FROM market_pools mp JOIN seasons s ON s.id=mp.season_id JOIN listings ps ON ps.id=mp.stock_id WHERE mp.stock_id=$1 AND mp.exchange_id=$2 AND s.status='ACTIVE' AND ps.is_active=true FOR UPDATE OF mp`,[input.stockId,auth.exchangeId]);
       if(!market)throw notFound("Market not found");if(market.halted_until&&market.halted_until>new Date())throw conflict("This market is temporarily halted","MARKET_HALTED");
       quoteTrade({shareReserve:market.share_reserve,creditReserve:market.credit_reserve},input.side,input.quantity);
       const pos=await loadPosition(client,auth.id,input.stockId,market.season_id,true),id=randomUUID();
@@ -137,7 +137,7 @@ export async function registerTradeRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/limit-orders/:id/cancel",{preHandler:guard({csrf:true})},async(request)=>{
     const params=z.object({id:z.string().uuid()}).parse(request.params),auth=request.auth!;
     await withTransaction(async client=>{
-      const order=await maybeOne<{id:string;season_id:string;user_id:string;side:string;reserved_cash:string;status:string}>(client,"SELECT * FROM limit_orders WHERE id=$1 AND user_id=$2 FOR UPDATE",[params.id,auth.id]);
+      const order=await maybeOne<{id:string;season_id:string;user_id:string;side:string;reserved_cash:string;status:string}>(client,"SELECT * FROM limit_orders WHERE id=$1 AND user_id=$2 AND exchange_id=$3 FOR UPDATE",[params.id,auth.id,auth.exchangeId]);
       if(!order)throw notFound("Limit order not found");if(order.status!=="OPEN")throw conflict("Only open orders can be canceled");
       if(order.side==="BUY"&&new Decimal(order.reserved_cash).gt(0))await postLedgerTransaction(client,"LIMIT_CANCEL",`Refund canceled buy limit ${order.id}`,[
         {accountKey:accounts.limitEscrow(order.id,order.season_id),amount:new Decimal(order.reserved_cash).negated()},
@@ -154,8 +154,8 @@ export async function registerTradeRoutes(app: FastifyInstance): Promise<void> {
     return withTransaction(async (client) => {
       const pool = await maybeOne<PoolRow>(client,
         `SELECT mp.* FROM market_pools mp JOIN seasons s ON s.id=mp.season_id
-          JOIN person_stocks ps ON ps.id=mp.stock_id
-         WHERE mp.stock_id=$1 AND s.status='ACTIVE' AND ps.is_active=true`, [input.stockId]);
+          JOIN listings ps ON ps.id=mp.stock_id
+         WHERE mp.stock_id=$1 AND mp.exchange_id=$2 AND s.status='ACTIVE' AND ps.is_active=true`, [input.stockId, auth.exchangeId]);
       if (!pool) throw notFound("Market not found");
       const position = await loadPosition(client, auth.id, input.stockId, pool.season_id);
       const quote = quoteTrade({ shareReserve: pool.share_reserve, creditReserve: pool.credit_reserve }, input.side, input.quantity);
@@ -194,8 +194,8 @@ export async function registerTradeRoutes(app: FastifyInstance): Promise<void> {
     const saved = await withTransaction(async (client) => {
       const pool = await maybeOne<PoolRow>(client,
         `SELECT mp.* FROM market_pools mp JOIN seasons s ON s.id = mp.season_id
-          JOIN person_stocks ps ON ps.id = mp.stock_id
-         WHERE mp.stock_id = $1 AND s.status = 'ACTIVE' AND ps.is_active = true`, [input.stockId]
+          JOIN listings ps ON ps.id = mp.stock_id
+         WHERE mp.stock_id = $1 AND mp.exchange_id = $2 AND s.status = 'ACTIVE' AND ps.is_active = true`, [input.stockId, auth.exchangeId]
       );
       if (!pool) throw notFound("Market not found");
       if (pool.halted_until && pool.halted_until > new Date()) throw conflict("This market is temporarily halted", "MARKET_HALTED");
@@ -229,7 +229,7 @@ export async function registerTradeRoutes(app: FastifyInstance): Promise<void> {
         id: string; season_id: string; user_id: string; stock_id: string; side: TradeSide; quantity: string;
         gross_amount: string; fee_amount: string; net_amount: string; execution_price: string;
         reserve_version: string; expires_at: Date; consumed_at: Date | null;
-      }>(client, "SELECT * FROM trade_quotes WHERE id = $1 FOR UPDATE", [input.quoteId]);
+      }>(client, "SELECT * FROM trade_quotes WHERE id = $1 AND exchange_id = $2 FOR UPDATE", [input.quoteId, auth.exchangeId]);
       if (!quote || quote.user_id !== auth.id) throw notFound("Quote not found");
       if (quote.consumed_at) throw conflict("Quote has already been used", "QUOTE_USED");
       if (quote.expires_at < new Date()) throw conflict("Quote expired; request a new one", "QUOTE_EXPIRED");
@@ -329,7 +329,7 @@ export async function registerTradeRoutes(app: FastifyInstance): Promise<void> {
             `Market confidence from ${quote.side.toLowerCase()} trade ${tradeId}`, auth.id]
         );
         await client.query(
-          `UPDATE person_stocks
+          `UPDATE listings
               SET seasonal_aura=seasonal_aura+$1, career_aura=career_aura+$1, updated_at=now()
             WHERE id=$2`,
           [auraImpact.toFixed(2), quote.stock_id]
@@ -370,7 +370,7 @@ export async function registerTradeRoutes(app: FastifyInstance): Promise<void> {
     const auth = request.auth!;
     return withTransaction(async (client) => {
       const position = await maybeOne<PositionRow & { stock_id: string; season_id: string }>(client,
-        "SELECT * FROM positions WHERE id=$1 AND user_id=$2", [params.id, auth.id]
+        "SELECT * FROM positions WHERE id=$1 AND user_id=$2 AND exchange_id=$3", [params.id, auth.id, auth.exchangeId]
       );
       if (!position) throw notFound("Position not found");
       const side: TradeSide = new Decimal(position.long_qty).gt(0) ? "SELL" : "COVER";

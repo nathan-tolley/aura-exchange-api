@@ -13,6 +13,7 @@ import {
 import { accounts, postLedgerTransaction } from "../core/ledger.js";
 import { badRequest, conflict, forbidden, unauthorized } from "../errors.js";
 import { config } from "../config.js";
+import { addMembership, legacyExchangeId } from "../services/exchange-service.js";
 
 const credentialsSchema = z.object({
   username: z.string().trim().min(3).max(32).regex(/^[a-zA-Z0-9_.-]+$/),
@@ -25,7 +26,9 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     ipAddress: request.ip
   });
   app.get("/api/setup/status", async () => {
-    const result = await pool.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM users");
+    const result = await pool.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM memberships WHERE exchange_id=$1", [await legacyExchangeId(pool)]
+    );
     return { needsSetup: Number(result.rows[0]?.count ?? 0) === 0 };
   });
 
@@ -43,8 +46,9 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     if (input.setupToken !== config.SETUP_TOKEN) throw forbidden("Invalid setup token");
 
     const result = await withTransaction(async (client) => {
-      await client.query("LOCK TABLE users IN EXCLUSIVE MODE");
-      const existing = await client.query("SELECT 1 FROM users LIMIT 1");
+      await client.query("LOCK TABLE memberships IN EXCLUSIVE MODE");
+      const exchangeId = await legacyExchangeId(client);
+      const existing = await client.query("SELECT 1 FROM memberships WHERE exchange_id=$1 LIMIT 1", [exchangeId]);
       if (existing.rowCount) throw conflict("Owner setup has already been completed");
 
       const user = await one<{ id: string }>(client,
@@ -52,13 +56,14 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         [input.username, await hashPassword(input.password)]
       );
       const stock = await one<{ id: string }>(client,
-        `INSERT INTO person_stocks(display_name, ticker, owner_user_id, is_active, claimed_at, consented_at)
-         VALUES ($1, $2, $3, true, now(), now()) RETURNING id`,
-        [input.displayName, input.ticker, user.id]
+        `INSERT INTO listings(exchange_id, display_name, ticker, owner_user_id, is_active, claimed_at, consented_at)
+         VALUES ($1, $2, $3, $4, true, now(), now()) RETURNING id`,
+        [exchangeId, input.displayName, input.ticker, user.id]
       );
+      await addMembership(client, exchangeId, user.id, "ADMIN", "now");
       const season = await one<{ id: string }>(client,
-        `INSERT INTO seasons(season_number, name, starts_at, ends_at)
-         VALUES (1, 'Season 1', now(), now() + interval '8 weeks') RETURNING id`
+        `INSERT INTO seasons(exchange_id, season_number, name, starts_at, ends_at)
+         VALUES ($1, 1, 'Season 1', now(), now() + interval '8 weeks') RETURNING id`, [exchangeId]
       );
       await client.query(
         "INSERT INTO market_pools(season_id, stock_id) VALUES ($1, $2)", [season.id, stock.id]
@@ -127,13 +132,16 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         "INSERT INTO users(username, password_hash) VALUES ($1, $2) RETURNING id",
         [input.username, await hashPassword(input.password)]
       );
-      const stock = await one<{ id: string; display_name: string }>(client,
-        `UPDATE person_stocks SET owner_user_id = $1, is_active = true, claimed_at = now(), consented_at = now(), updated_at = now()
-          WHERE id = $2 AND owner_user_id IS NULL RETURNING id, display_name`,
+      const stock = await one<{ id: string; display_name: string; exchange_id: string }>(client,
+        `UPDATE listings SET owner_user_id = $1, is_active = true, claimed_at = now(), consented_at = now(), updated_at = now()
+          WHERE id = $2 AND owner_user_id IS NULL RETURNING id, display_name, exchange_id`,
         [user.id, invite.person_stock_id]
       );
+      await addMembership(client, stock.exchange_id, user.id, "MEMBER", "now");
       await client.query("UPDATE invites SET used_at = now() WHERE id = $1", [invite.id]);
-      const season = await one<{ id: string }>(client, "SELECT id FROM seasons WHERE status = 'ACTIVE'");
+      const season = await one<{ id: string }>(client,
+        "SELECT id FROM seasons WHERE exchange_id = $1 AND status = 'ACTIVE'", [stock.exchange_id]
+      );
       await client.query("INSERT INTO market_pools(season_id, stock_id) VALUES ($1, $2)", [season.id, stock.id]);
       await postLedgerTransaction(client, "SEASON_GRANT", "Initial season balance", [
         { accountKey: accounts.userCash(user.id, season.id), amount: 10_000 },

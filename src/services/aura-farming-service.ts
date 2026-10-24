@@ -7,7 +7,7 @@ import { notifyStockOwner, notifyUser } from "./notification-service.js";
 type Choice = "SUPPORT" | "DECLINE" | "RECONSIDER";
 
 interface PollRow {
-  id:string; submission_id:string; ruling_id:string; season_id:string; author_id:string;
+  id:string; exchange_id:string; submission_id:string; ruling_id:string; season_id:string; author_id:string;
   subject_stock_id:string; explanation:string; status:string; verdict:"GAIN"|"LOSS"|"NEUTRAL"|"REVIEW";
   delta:number; rationale:string;
 }
@@ -22,7 +22,7 @@ export async function resolveExpiredAuraFarming():Promise<void> {
 async function resolvePoll(pollId:string):Promise<void> {
   await withTransaction(async(client:PoolClient)=>{
     const poll=await maybeOne<PollRow>(client,
-      `SELECT p.id,p.submission_id,p.ruling_id,s.season_id,s.author_id,s.subject_stock_id,s.explanation,s.status,
+      `SELECT p.id,p.exchange_id,p.submission_id,p.ruling_id,s.season_id,s.author_id,s.subject_stock_id,s.explanation,s.status,
               r.verdict,r.delta,r.rationale
          FROM aura_swing_polls p JOIN aura_submissions s ON s.id=p.submission_id
          JOIN aura_rulings r ON r.id=p.ruling_id
@@ -36,18 +36,18 @@ async function resolvePoll(pollId:string):Promise<void> {
 
     const voters=await client.query<{voter_id:string;stock_id:string}>(
       `SELECT v.voter_id,ps.id AS stock_id FROM aura_swing_votes v
-       JOIN person_stocks ps ON ps.owner_user_id=v.voter_id AND ps.is_active=true WHERE v.poll_id=$1`,[poll.id]);
+       JOIN listings ps ON ps.owner_user_id=v.voter_id AND ps.exchange_id=$2 AND ps.is_active=true WHERE v.poll_id=$1`,[poll.id,poll.exchange_id]);
     for(const voter of voters.rows){
       await client.query(
         `INSERT INTO aura_ledger_entries(season_id,stock_id,delta,reason,created_by)
          VALUES ($1,$2,2,$3,$4)`,[poll.season_id,voter.stock_id,`Aura Farming participation ${poll.id}`,voter.voter_id]);
       await client.query(
-        "UPDATE person_stocks SET seasonal_aura=seasonal_aura+2,career_aura=career_aura+2,updated_at=now() WHERE id=$1",[voter.stock_id]);
+        "UPDATE listings SET seasonal_aura=seasonal_aura+2,career_aura=career_aura+2,updated_at=now() WHERE id=$1",[voter.stock_id]);
       await postLedgerTransaction(client,"AURA_FARMING_REWARD","Aura Farming participation reward",[
         {accountKey:accounts.userCash(voter.voter_id,poll.season_id),amount:100},
         {accountKey:accounts.issuance(poll.season_id),amount:-100}
       ],poll.id);
-      await notifyUser(client,voter.voter_id,"FARMING_REWARD",{pollId:poll.id,aura:2,credits:100});
+      await notifyUser(client,poll.exchange_id,voter.voter_id,"FARMING_REWARD",{pollId:poll.id,aura:2,credits:100});
     }
 
     if(outcome==="SUPPORT"){

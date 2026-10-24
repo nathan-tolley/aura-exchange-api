@@ -3,9 +3,9 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: 0.3 → migration `013_exchanges.sql` (exchanges, memberships, `person_stocks` → `listings`, `exchange_id` everywhere)
+- Step: 0.3 → the worker loops over exchanges
 - State: in progress
-- Next action: write 013 (Default exchange flagged `is_legacy`; `exchange_id` added with the legacy id as a one-off default; an `enforce_exchange_id` trigger fills and checks it from the parent row); rename `person_stocks` → `listings` in all SQL; pass `exchange_id` where legacy code inserts seasons, listings, glossary, moderation actions and memberships; the legacy smoke test must stay green
+- Next action: move the worker's jobs into an exported module (`src/jobs/`) that takes an exchange, loop over exchanges with per-exchange timezones and run-once keys, so allowance, dividends, borrow fees, liquidations, ambient motion, indices and season close never cross exchanges
 - Uncommitted work: none
 - Waiting on Nathan:
   - Node 24 on the host? pnpm 11.25.0 needs Node ≥ 22.13; the host has 20.20.0. Checks run in a `node:24` container meanwhile (NOTES.md → Checks). Ask before changing the global Node.
@@ -23,3 +23,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-24 · 0.2 · Contract-test harness (ajv + openapi/v1.yaml), dev Postgres (`compose.dev.yaml`, port 5433), DB-backed `/v1/health` contract tests. 47 tests green.
 - 2026-10-24 · 0.2 · Idempotency (`012_idempotency_keys.sql`, preHandler + onSend, hourly purge); spec draft.3 declares 429/503 everywhere and 400/409 on writes. 61 tests green. **0.2 done.**
 - 2026-10-24 · 0.3 · Legacy `/api` smoke test (`tests/legacy/api-smoke.test.ts`, 9 console flows) green on the pre-0.3 schema, as a safety net.
+- 2026-10-24 · 0.3 · Migration 013 (exchanges, memberships, `person_stocks` → `listings`, `exchange_id` + `enforce_exchange_id` trigger on every game table); legacy `/api` scoped to the Default exchange; schema tests. 76 tests green.

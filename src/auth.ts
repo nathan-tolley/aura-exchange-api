@@ -6,6 +6,7 @@ import { pool } from "./db.js";
 import { forbidden, unauthorized } from "./errors.js";
 import { config } from "./config.js";
 import type { Role, SessionUser } from "./types.js";
+import { legacyExchangeId } from "./services/exchange-service.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -61,6 +62,7 @@ export async function loadSession(request: FastifyRequest): Promise<void> {
   const token = request.cookies[SESSION_COOKIE];
   if (!token) return;
 
+  const exchangeId = await legacyExchangeId(pool);
   const result = await pool.query<{
     id: string;
     username: string;
@@ -74,15 +76,16 @@ export async function loadSession(request: FastifyRequest): Promise<void> {
             ps.id AS stock_id, ps.display_name, ps.ticker::text
        FROM sessions s
        JOIN users u ON u.id = s.user_id
-       LEFT JOIN person_stocks ps ON ps.owner_user_id = u.id
+       LEFT JOIN listings ps ON ps.owner_user_id = u.id AND ps.exchange_id = $2
       WHERE s.token_hash = $1 AND s.expires_at > now() AND s.revoked_at IS NULL`,
-    [hashToken(token)]
+    [hashToken(token), exchangeId]
   );
   const row = result.rows[0];
   if (!row) return;
   await pool.query("UPDATE sessions SET last_seen_at=now() WHERE token_hash=$1 AND last_seen_at<now()-interval '5 minutes'", [hashToken(token)]);
   request.auth = {
     id: row.id,
+    exchangeId,
     username: row.username,
     role: row.role,
     csrfToken: row.csrf_token,

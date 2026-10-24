@@ -25,7 +25,7 @@ export async function registerProfileRoutes(app: FastifyInstance): Promise<void>
     const filename = `${auth.stockId}.webp`;
     await writeFile(path.join(directory, filename), output);
     const publicPath = `/uploads/${filename}`;
-    await pool.query("UPDATE person_stocks SET avatar_path=$1,updated_at=now() WHERE id=$2", [publicPath, auth.stockId]);
+    await pool.query("UPDATE listings SET avatar_path=$1,updated_at=now() WHERE id=$2", [publicPath, auth.stockId]);
     await pool.query(
       "INSERT INTO audit_logs(actor_id,action,entity_type,entity_id) VALUES ($1,'AVATAR_UPDATED','PERSON_STOCK',$2)",
       [auth.id, auth.stockId]

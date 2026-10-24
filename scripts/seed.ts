@@ -2,24 +2,28 @@ import { randomBytes } from "node:crypto";
 import { hashPassword, hashToken } from "../src/auth.js";
 import { pool, one, withTransaction } from "../src/db.js";
 import { accounts, postLedgerTransaction } from "../src/core/ledger.js";
+import { addMembership, legacyExchangeId } from "../src/services/exchange-service.js";
 
 const ownerPassword = process.env.OWNER_PASSWORD ?? "ChangeMeAura123!";
 
 await withTransaction(async (client) => {
-  const count = await client.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM users");
+  const exchangeId = await legacyExchangeId(client);
+  const count = await client.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM memberships WHERE exchange_id=$1", [exchangeId]);
   if (Number(count.rows[0]?.count) > 0) {
-    console.log("Seed skipped: users already exist");
+    console.log("Seed skipped: the Default exchange already has members");
     return;
   }
   const owner = await one<{ id: string }>(client,
     "INSERT INTO users(username,password_hash,role) VALUES ('owner',$1,'OWNER') RETURNING id", [await hashPassword(ownerPassword)]
   );
   const ownerStock = await one<{ id: string }>(client,
-    `INSERT INTO person_stocks(display_name,ticker,owner_user_id,is_active,claimed_at,consented_at)
-     VALUES ('Exchange Owner','OWNR',$1,true,now(),now()) RETURNING id`, [owner.id]
+    `INSERT INTO listings(exchange_id,display_name,ticker,owner_user_id,is_active,claimed_at,consented_at)
+     VALUES ($1,'Exchange Owner','OWNR',$2,true,now(),now()) RETURNING id`, [exchangeId, owner.id]
   );
+  await addMembership(client, exchangeId, owner.id, "ADMIN", "now");
   const season = await one<{ id: string }>(client,
-    "INSERT INTO seasons(season_number,name,starts_at,ends_at) VALUES (1,'Season 1',now(),now()+interval '8 weeks') RETURNING id"
+    "INSERT INTO seasons(exchange_id,season_number,name,starts_at,ends_at) VALUES ($1,1,'Season 1',now(),now()+interval '8 weeks') RETURNING id",
+    [exchangeId]
   );
   await client.query("INSERT INTO market_pools(season_id,stock_id) VALUES ($1,$2)", [season.id, ownerStock.id]);
   await postLedgerTransaction(client, "SEASON_GRANT", "Initial season balance", [
@@ -32,7 +36,7 @@ await withTransaction(async (client) => {
     { name: "Theo Brooks", ticker: "THEO" }
   ]) {
     const stock = await one<{ id: string }>(client,
-      "INSERT INTO person_stocks(display_name,ticker) VALUES ($1,$2) RETURNING id", [person.name, person.ticker]
+      "INSERT INTO listings(exchange_id,display_name,ticker) VALUES ($1,$2,$3) RETURNING id", [exchangeId, person.name, person.ticker]
     );
     const code = randomBytes(6).toString("base64url").toUpperCase();
     await client.query(

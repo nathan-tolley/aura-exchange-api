@@ -35,7 +35,7 @@ export async function applyAuraEntry(
     [submission.season_id, submission.subject_stock_id, submission.id, rulingId, delta, rationale, createdBy ?? null]
   );
   await client.query(
-    `UPDATE person_stocks SET seasonal_aura = seasonal_aura + $1, career_aura = career_aura + $1, updated_at = now()
+    `UPDATE listings SET seasonal_aura = seasonal_aura + $1, career_aura = career_aura + $1, updated_at = now()
       WHERE id = $2`, [delta, submission.subject_stock_id]
   );
   await client.query("UPDATE aura_submissions SET status = 'APPLIED', updated_at = now() WHERE id = $1", [submission.id]);
@@ -70,8 +70,9 @@ export async function processAuraSubmission(
   if (!submission) return;
 
   const glossaryResult = await withTransaction(async (client) => client.query<{ phrase: string; explanation: string }>(
-    `SELECT phrase::text, explanation FROM glossary_entries
-      WHERE position(lower(phrase::text) in lower($1)) > 0 LIMIT 8`, [submission.explanation]
+    `SELECT g.phrase::text, g.explanation FROM glossary_entries g
+       JOIN aura_submissions s ON s.id = $2 AND s.exchange_id = g.exchange_id
+      WHERE position(lower(g.phrase::text) in lower($1)) > 0 LIMIT 8`, [submission.explanation, submission.id]
   ));
 
   const judge = await createAuraJudge();

@@ -4,6 +4,8 @@ export type AuraVerdict = "GAIN" | "LOSS" | "NEUTRAL" | "REVIEW";
 
 export interface SessionUser {
   id: string;
+  /** The exchange the /api console serves: always the legacy Default exchange. */
+  exchangeId: string;
   username: string;
   role: Role;
   stockId: string | null;

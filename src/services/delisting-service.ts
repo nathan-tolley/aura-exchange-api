@@ -41,7 +41,7 @@ export async function delistStock(client: PoolClient, stockId: string, actorId: 
     );
   }
   await client.query("UPDATE market_pools SET halted_until='infinity',updated_at=now() WHERE id=$1", [market.id]);
-  await client.query("UPDATE person_stocks SET is_active=false,opted_out_at=now(),updated_at=now() WHERE id=$1", [stockId]);
+  await client.query("UPDATE listings SET is_active=false,opted_out_at=now(),updated_at=now() WHERE id=$1", [stockId]);
   await client.query("UPDATE feed_events SET hidden_at=now() WHERE subject_stock_id=$1", [stockId]);
   await client.query(
     `INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,metadata)

@@ -6,7 +6,7 @@ import {marketAuraAdjustment,quoteTrade,reserveVersion} from "../core/market.js"
 import {one,pool,withTransaction} from "../db.js";
 import {notifyUser} from "./notification-service.js";
 
-interface LimitOrder { id:string;season_id:string;user_id:string;stock_id:string;side:"BUY"|"SELL";quantity:string;limit_price:string;reserved_cash:string }
+interface LimitOrder { id:string;exchange_id:string;season_id:string;user_id:string;stock_id:string;side:"BUY"|"SELL";quantity:string;limit_price:string;reserved_cash:string }
 
 export async function processOpenLimitOrders():Promise<void>{
   const candidates=await pool.query<{id:string}>("SELECT id FROM limit_orders WHERE status='OPEN' ORDER BY created_at LIMIT 50");
@@ -65,10 +65,10 @@ async function fillLimitOrder(id:string):Promise<void>{
     await client.query("INSERT INTO trades(id,season_id,user_id,stock_id,quote_id,idempotency_key,side,quantity,gross_amount,fee_amount,execution_price) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",[tradeId,order.season_id,order.user_id,order.stock_id,quoteId,`limit:${order.id}`,order.side,quote.quantity,quote.grossAmount,quote.feeAmount,quote.executionPrice]);
     const auraImpact=marketAuraAdjustment(order.side,quote.grossAmount);
     await client.query("INSERT INTO aura_ledger_entries(season_id,stock_id,delta,reason,created_by) VALUES($1,$2,$3,$4,$5)",[order.season_id,order.stock_id,auraImpact.toFixed(2),`Market confidence from filled ${order.side.toLowerCase()} limit ${order.id}`,order.user_id]);
-    await client.query("UPDATE person_stocks SET seasonal_aura=seasonal_aura+$1,career_aura=career_aura+$1,updated_at=now() WHERE id=$2",[auraImpact.toFixed(2),order.stock_id]);
+    await client.query("UPDATE listings SET seasonal_aura=seasonal_aura+$1,career_aura=career_aura+$1,updated_at=now() WHERE id=$2",[auraImpact.toFixed(2),order.stock_id]);
     await client.query("INSERT INTO market_price_ticks(season_id,stock_id,price,cause,reference_id,is_synthetic) VALUES($1,$2,$3,'TRADE',$4,false)",[order.season_id,order.stock_id,nextPrice.toFixed(8),tradeId]);
     await client.query("INSERT INTO feed_events(season_id,kind,actor_id,subject_stock_id,payload) VALUES($1,'TRADE',$2,$3,$4)",[order.season_id,order.user_id,order.stock_id,JSON.stringify({tradeId,limitOrderId:order.id,side:order.side,quantity:quote.quantity,price:quote.executionPrice,auraImpact:auraImpact.toNumber()})]);
     await client.query("UPDATE limit_orders SET status='FILLED',filled_trade_id=$1,filled_at=now(),updated_at=now() WHERE id=$2",[tradeId,order.id]);
-    await notifyUser(client,order.user_id,"LIMIT_ORDER_FILLED",{orderId:order.id,tradeId,stockId:order.stock_id,side:order.side,quantity:quote.quantity,price:quote.executionPrice});
+    await notifyUser(client,order.exchange_id,order.user_id,"LIMIT_ORDER_FILLED",{orderId:order.id,tradeId,stockId:order.stock_id,side:order.side,quantity:quote.quantity,price:quote.executionPrice});
   });
 }

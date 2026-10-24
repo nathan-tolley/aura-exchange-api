@@ -25,8 +25,8 @@ export async function registerVoteRoutes(app: FastifyInstance): Promise<void> {
         `SELECT f.id, f.season_id, f.subject_stock_id, f.payload, s.status AS submission_status
            FROM feed_events f
            JOIN aura_submissions s ON s.id = (f.payload->>'submissionId')::uuid
-          WHERE f.id=$1 AND f.kind='AURA_RULING' AND f.hidden_at IS NULL
-          FOR UPDATE OF f`, [params.id]
+          WHERE f.id=$1 AND f.exchange_id=$2 AND f.kind='AURA_RULING' AND f.hidden_at IS NULL
+          FOR UPDATE OF f`, [params.id, auth.exchangeId]
       );
       if (!event || !event.season_id || !event.subject_stock_id) throw notFound("That Aura ruling is not available for voting");
       if (["REJECTED", "OVERTURNED"].includes(event.submission_status)) throw badRequest("That Aura ruling is closed to voting");
@@ -67,7 +67,7 @@ export async function registerVoteRoutes(app: FastifyInstance): Promise<void> {
             `Community vote changed from ${previousVote} to ${nextVote}`, auth.id]
         );
         await client.query(
-          `UPDATE person_stocks
+          `UPDATE listings
               SET seasonal_aura=seasonal_aura+$1, career_aura=career_aura+$1, updated_at=now()
             WHERE id=$2`, [adjustment.toFixed(2), event.subject_stock_id]
         );

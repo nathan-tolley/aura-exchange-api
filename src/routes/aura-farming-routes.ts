@@ -15,10 +15,11 @@ export async function registerAuraFarmingRoutes(app:FastifyInstance):Promise<voi
               COUNT(v.*) FILTER(WHERE v.choice='RECONSIDER')::int AS reconsider,
               COALESCE(MAX(v.choice) FILTER(WHERE v.voter_id=$1),NULL) AS viewer_choice
          FROM aura_swing_polls p JOIN aura_submissions s ON s.id=p.submission_id
-         JOIN person_stocks ps ON ps.id=s.subject_stock_id JOIN aura_rulings r ON r.id=p.ruling_id
+         JOIN listings ps ON ps.id=s.subject_stock_id JOIN aura_rulings r ON r.id=p.ruling_id
          LEFT JOIN aura_swing_votes v ON v.poll_id=p.id
+        WHERE p.exchange_id=$2
         GROUP BY p.id,s.id,ps.id,r.id
-        ORDER BY (p.status='OPEN') DESC,p.created_at DESC LIMIT 50`,[auth.id]);
+        ORDER BY (p.status='OPEN') DESC,p.created_at DESC LIMIT 50`,[auth.id,auth.exchangeId]);
     return {items:result.rows};
   });
 
@@ -30,7 +31,7 @@ export async function registerAuraFarmingRoutes(app:FastifyInstance):Promise<voi
     await withTransaction(async client=>{
       const poll=await maybeOne<{id:string;subject_stock_id:string;status:string;closes_at:Date}>(client,
         `SELECT p.id,s.subject_stock_id,p.status,p.closes_at FROM aura_swing_polls p
-         JOIN aura_submissions s ON s.id=p.submission_id WHERE p.id=$1 FOR UPDATE OF p`,[params.id]);
+         JOIN aura_submissions s ON s.id=p.submission_id WHERE p.id=$1 AND p.exchange_id=$2 FOR UPDATE OF p`,[params.id,auth.exchangeId]);
       if(!poll)throw notFound("Aura Farming poll not found");
       if(poll.status!=="OPEN"||poll.closes_at<=new Date())throw conflict("Voting has closed");
       if(poll.subject_stock_id===auth.stockId)throw forbidden("You cannot vote on your own Aura");

@@ -277,6 +277,22 @@ Plumbing decisions that are mine to make. Game rules go to `DECISIONS.md` instea
   - The worker purges expired keys hourly.
 - 2026-10-24: spec `1.0.0-draft.3` declares the error responses every operation can already return (429 and 503 everywhere; 400 and 409 on every write). The contract tests are strict about undeclared statuses, so the spec had to say so.
 - 2026-10-24: the error handler lives in `src/error-handler.ts`, so tests can mount `/v1` pieces on a small Fastify app.
+- 2026-10-24: **multi-tenancy (migration 013).**
+  - `exchanges` (hours as local `time`s, fee rates as fractions, `min_listings_to_open`, `settings` JSON) and `memberships` (`MEMBER`/`MODERATOR`/`ADMIN`, unique per user per exchange).
+  - `person_stocks` is renamed to `listings`, and every SQL string was updated. No compatibility view; `stock_id` columns keep their name and point at `listings`. I dropped the planned `listings.membership_id`: `(exchange_id, owner_user_id)` is unique and identifies the membership.
+  - Everything from before is the "Default" exchange (`is_legacy = true`, timezone `America/New_York`); every existing user became a member, with OWNER → ADMIN.
+- 2026-10-24: `exchange_id` is on every game table: `NOT NULL` with an FK, except on `notifications` and `audit_logs`, where it's nullable for account-level rows.
+  - It was added with the legacy id as a one-off default, so no rows were rewritten and the immutable-row triggers didn't fire.
+  - A generic `enforce_exchange_id(parent, column, …)` trigger fills a missing `exchange_id` from the parent row (season, listing, submission, poll, feed item, prediction) and rejects any row whose parents disagree with it or each other (`check_violation`). New `/v1` code should still pass `exchange_id` explicitly; the trigger is the backstop.
+  - The cash ledger has no `exchange_id`: every account key ends in a season id, and a season belongs to one exchange.
+- 2026-10-24: uniques that were global are now per exchange: the one active season, season number, ticker, owner's listing, glossary phrase. `users.username` stays global (console sign-in).
+- 2026-10-24: **the legacy `/api` serves only the Default exchange.**
+  - `loadSession` puts `exchangeId` on `request.auth`, and every `/api` query is filtered by it, including lookups by id, so the console can't reach another exchange's stock, quote, order, poll, prediction or user.
+  - Joins from a user to "their" listing also match the exchange, otherwise someone listed on two exchanges would duplicate rows.
+  - First-run setup is "needed" while the Default exchange has no members (it used to be "while `users` is empty").
+  - `/api/admin/diagnostics/jobs` and `/api/health` stay server-wide: they're the operator's views.
+- 2026-10-24: `notifyUser(client, exchangeId | null, userId, kind, payload)`. `notifyStockOwner` takes the exchange from the listing.
+- 2026-10-24: `minListingsToOpen` is stored per exchange, and `tradingState()` (`src/services/exchange-service.ts`) computes `tradingEnabled`. It will gate `/v1` quotes and trades in 0.5. The legacy `/api` isn't gated, so the friend's console behaves as before; the 3-listing rule is still awaiting Nathan's OK (DECISIONS.md).
 
 ## Checks
 

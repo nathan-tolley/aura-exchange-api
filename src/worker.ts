@@ -92,7 +92,7 @@ async function grantAllowance(dateKey: string): Promise<void> {
   await withTransaction(async (client) => {
     const season = await one<{ id: string }>(client, "SELECT id FROM seasons WHERE status='ACTIVE'");
     const users = await client.query<{ id: string }>(
-      "SELECT u.id FROM users u JOIN person_stocks ps ON ps.owner_user_id=u.id WHERE ps.is_active=true"
+      "SELECT u.id FROM users u JOIN listings ps ON ps.owner_user_id=u.id WHERE ps.is_active=true"
     );
     for (const user of users.rows) {
       await postLedgerTransaction(client, "WEEKLY_ALLOWANCE", `Weekly allowance ${dateKey}`, [
@@ -112,7 +112,7 @@ async function settleDividends(dateKey: string): Promise<void> {
     const season = await one<{ id: string }>(client, "SELECT id FROM seasons WHERE status='ACTIVE'");
     const stocks = await client.query<{ id: string; aura_delta: string }>(
       `SELECT ps.id, COALESCE(SUM(a.delta) FILTER (WHERE a.created_at>=now()-interval '7 days'),0)::int AS aura_delta
-         FROM person_stocks ps LEFT JOIN aura_ledger_entries a ON a.stock_id=ps.id AND a.season_id=$1
+         FROM listings ps LEFT JOIN aura_ledger_entries a ON a.stock_id=ps.id AND a.season_id=$1
         WHERE ps.is_active=true GROUP BY ps.id`, [season.id]
     );
     for (const stock of stocks.rows) {
@@ -187,8 +187,8 @@ async function liquidateUnsafeShorts(): Promise<void> {
   for (const candidate of candidates.rows) {
     await withTransaction(async (client) => {
       const position = await one<{
-        id:string;season_id:string;user_id:string;stock_id:string;short_qty:string;short_proceeds:string;short_collateral:string;
-      }>(client,"SELECT id,season_id,user_id,stock_id,short_qty::text,short_proceeds::text,short_collateral::text FROM positions WHERE id=$1 FOR UPDATE",[candidate.id]);
+        id:string;exchange_id:string;season_id:string;user_id:string;stock_id:string;short_qty:string;short_proceeds:string;short_collateral:string;
+      }>(client,"SELECT id,exchange_id,season_id,user_id,stock_id,short_qty::text,short_proceeds::text,short_collateral::text FROM positions WHERE id=$1 FOR UPDATE",[candidate.id]);
       if (new Decimal(position.short_qty).lte(0)) return;
       const market = await one<{ id:string;share_reserve:string;credit_reserve:string }>(client,
         "SELECT id,share_reserve::text,credit_reserve::text FROM market_pools WHERE season_id=$1 AND stock_id=$2 FOR UPDATE",
@@ -252,7 +252,7 @@ async function liquidateUnsafeShorts(): Promise<void> {
          VALUES ($1,'LIQUIDATION',$2,$3,$4)`,
         [position.season_id,position.user_id,position.stock_id,JSON.stringify({tradeId,quantity:cover.quantity,price:cover.executionPrice})]
       );
-      await notifyUser(client,position.user_id,"SHORT_LIQUIDATED",{tradeId,stockId:position.stock_id,quantity:cover.quantity,price:cover.executionPrice});
+      await notifyUser(client,position.exchange_id,position.user_id,"SHORT_LIQUIDATED",{tradeId,stockId:position.stock_id,quantity:cover.quantity,price:cover.executionPrice});
     });
   }
 }
@@ -298,7 +298,7 @@ async function snapshotIndices(): Promise<void> {
     if (!season) return;
     const rows = await client.query<{ seasonal_aura: string; price: string; opening_price: string }>(
       `SELECT ps.seasonal_aura,(mp.credit_reserve/mp.share_reserve)::text AS price,mp.opening_price::text
-         FROM person_stocks ps JOIN market_pools mp ON mp.stock_id=ps.id AND mp.season_id=$1 WHERE ps.is_active=true`, [season.id]
+         FROM listings ps JOIN market_pools mp ON mp.stock_id=ps.id AND mp.season_id=$1 WHERE ps.is_active=true`, [season.id]
     );
     await client.query(
       "INSERT INTO index_snapshots(season_id,aura_composite,market_index) VALUES ($1,$2,$3)",
@@ -309,8 +309,8 @@ async function snapshotIndices(): Promise<void> {
 
 async function closeExpiredSeason(): Promise<void> {
   await withTransaction(async (client) => {
-    const expired = await client.query<{ id: string; season_number: number }>(
-      "SELECT id,season_number FROM seasons WHERE status='ACTIVE' AND ends_at<=now() FOR UPDATE"
+    const expired = await client.query<{ id: string; season_number: number; exchange_id: string }>(
+      "SELECT id,season_number,exchange_id FROM seasons WHERE status='ACTIVE' AND ends_at<=now() ORDER BY ends_at LIMIT 1 FOR UPDATE"
     );
     const old = expired.rows[0];
     if (!old) return;
@@ -327,7 +327,7 @@ async function closeExpiredSeason(): Promise<void> {
        )
        SELECT u.id,ps.display_name,ps.ticker::text,ps.seasonal_aura::text,
               (COALESCE(b.cash,0)+COALESCE(e.value,0))::text AS net_worth
-         FROM users u JOIN person_stocks ps ON ps.owner_user_id=u.id
+         FROM users u JOIN listings ps ON ps.owner_user_id=u.id
          LEFT JOIN balances b ON b.user_id=u.id LEFT JOIN exposure e ON e.user_id=u.id
         WHERE ps.is_active=true ORDER BY COALESCE(b.cash,0)+COALESCE(e.value,0) DESC`, [old.id]
     );
@@ -358,12 +358,12 @@ async function closeExpiredSeason(): Promise<void> {
     }
     await client.query("UPDATE seasons SET status='CLOSED',closed_at=now() WHERE id=$1", [old.id]);
     const next = await one<{ id: string }>(client,
-      `INSERT INTO seasons(season_number,name,starts_at,ends_at) VALUES ($1,$2,now(),now()+interval '8 weeks') RETURNING id`,
-      [old.season_number + 1, `Season ${old.season_number + 1}`]
+      `INSERT INTO seasons(exchange_id,season_number,name,starts_at,ends_at) VALUES ($1,$2,$3,now(),now()+interval '8 weeks') RETURNING id`,
+      [old.exchange_id, old.season_number + 1, `Season ${old.season_number + 1}`]
     );
-    await client.query("UPDATE person_stocks SET seasonal_aura=100 WHERE is_active=true");
+    await client.query("UPDATE listings SET seasonal_aura=100 WHERE is_active=true");
     const users = await client.query<{ user_id: string; stock_id: string }>(
-      "SELECT owner_user_id AS user_id,id AS stock_id FROM person_stocks WHERE is_active=true AND owner_user_id IS NOT NULL"
+      "SELECT owner_user_id AS user_id,id AS stock_id FROM listings WHERE is_active=true AND owner_user_id IS NOT NULL"
     );
     for (const user of users.rows) {
       await client.query("INSERT INTO market_pools(season_id,stock_id) VALUES ($1,$2)", [next.id, user.stock_id]);

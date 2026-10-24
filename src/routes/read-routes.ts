@@ -21,7 +21,7 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/notifications", { preHandler: guard() }, async (request) => {
     const result = await pool.query(
       `SELECT id,kind,payload,read_at,created_at FROM notifications
-        WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50`, [request.auth!.id]
+        WHERE user_id=$1 AND (exchange_id=$2 OR exchange_id IS NULL) ORDER BY created_at DESC LIMIT 50`, [request.auth!.id, request.auth!.exchangeId]
     );
     return { items: result.rows, unread: result.rows.filter((row: { read_at: Date | null }) => !row.read_at).length };
   });
@@ -36,7 +36,7 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  app.get("/api/market", { preHandler: guard() }, async () => {
+  app.get("/api/market", { preHandler: guard() }, async (request) => {
     const result = await pool.query<{
       id: string; display_name: string; ticker: string; avatar_path:string|null; seasonal_aura: string; career_aura: string;
       price: string; opening_price: string; day_open_price: string; halted_until: Date | null;
@@ -44,9 +44,9 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
       `SELECT ps.id, ps.display_name, ps.ticker::text, ps.avatar_path, ps.seasonal_aura, ps.career_aura,
               (mp.credit_reserve/mp.share_reserve)::text AS price, mp.opening_price::text,
               mp.day_open_price::text, mp.halted_until
-         FROM person_stocks ps JOIN market_pools mp ON mp.stock_id=ps.id
+         FROM listings ps JOIN market_pools mp ON mp.stock_id=ps.id
          JOIN seasons s ON s.id=mp.season_id AND s.status='ACTIVE'
-        WHERE ps.is_active=true ORDER BY ps.ticker`
+        WHERE ps.is_active=true AND ps.exchange_id=$1 ORDER BY ps.ticker`, [request.auth!.exchangeId]
     );
     const stocks = result.rows.map((row) => ({
       id: row.id,
@@ -67,11 +67,12 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get("/api/composite", { preHandler: guard() }, async () => {
-    const seasonResult = await pool.query<{id:string;starts_at:Date}>("SELECT id,starts_at FROM seasons WHERE status='ACTIVE'");
+  app.get("/api/composite", { preHandler: guard() }, async (request) => {
+    const exchangeId = request.auth!.exchangeId;
+    const seasonResult = await pool.query<{id:string;starts_at:Date}>("SELECT id,starts_at FROM seasons WHERE exchange_id=$1 AND status='ACTIVE'",[exchangeId]);
     const season=seasonResult.rows[0];
     if(!season)return {ticker:"AURA",name:"Aura Composite",current:100,open:100,high:100,low:100,change:0,points:[]};
-    const stocks=await pool.query<{seasonal_aura:string}>("SELECT seasonal_aura::text FROM person_stocks WHERE is_active=true");
+    const stocks=await pool.query<{seasonal_aura:string}>("SELECT seasonal_aura::text FROM listings WHERE is_active=true AND exchange_id=$1",[exchangeId]);
     const current=auraComposite(stocks.rows.map(row=>Number(row.seasonal_aura)-100));
     const history=await pool.query<{created_at:Date;aura_composite:string}>(
       `SELECT captured_at AS created_at,aura_composite::text FROM index_snapshots WHERE season_id=$1
@@ -89,7 +90,7 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/portfolio", { preHandler: guard() }, async (request) => {
     const auth = request.auth!;
     return withTransaction(async (client) => {
-      const seasonResult = await client.query<{ id: string }>("SELECT id FROM seasons WHERE status='ACTIVE'");
+      const seasonResult = await client.query<{ id: string }>("SELECT id FROM seasons WHERE exchange_id=$1 AND status='ACTIVE'", [auth.exchangeId]);
       const seasonId = seasonResult.rows[0]?.id;
       if (!seasonId) return { cash: 0, equity: 0, positions: [] };
       const totals = await portfolioTotals(client, auth.id, seasonId);
@@ -101,7 +102,7 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
         `SELECT p.id, p.stock_id, ps.ticker::text, ps.display_name, p.long_qty::text, p.avg_long_cost::text,
                 p.short_qty::text, p.avg_short_entry::text, p.short_proceeds::text, p.short_collateral::text,
                 p.realized_pnl::text, (mp.credit_reserve/mp.share_reserve)::text AS price
-           FROM positions p JOIN person_stocks ps ON ps.id=p.stock_id
+           FROM positions p JOIN listings ps ON ps.id=p.stock_id
            JOIN market_pools mp ON mp.stock_id=p.stock_id AND mp.season_id=p.season_id
           WHERE p.user_id=$1 AND p.season_id=$2 AND (p.long_qty>0 OR p.short_qty>0)
           ORDER BY ps.ticker`, [auth.id, seasonId]
@@ -137,8 +138,8 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
               COALESCE(v.upvotes,0)::int AS upvotes, COALESCE(v.downvotes,0)::int AS downvotes,
               COALESCE(v.vote_score,0)::int AS vote_score, COALESCE(v.viewer_vote,0)::int AS viewer_vote
          FROM feed_events f
-         LEFT JOIN person_stocks actor_stock ON actor_stock.owner_user_id=f.actor_id
-         LEFT JOIN person_stocks subject ON subject.id=f.subject_stock_id
+         LEFT JOIN listings actor_stock ON actor_stock.owner_user_id=f.actor_id AND actor_stock.exchange_id=f.exchange_id
+         LEFT JOIN listings subject ON subject.id=f.subject_stock_id
          LEFT JOIN LATERAL (
            SELECT COUNT(*) FILTER (WHERE direction=1) AS upvotes,
                   COUNT(*) FILTER (WHERE direction=-1) AS downvotes,
@@ -146,8 +147,8 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
                   COALESCE(MAX(direction) FILTER (WHERE voter_id=$1),0) AS viewer_vote
              FROM aura_votes WHERE feed_event_id=f.id
          ) v ON true
-        WHERE f.hidden_at IS NULL ORDER BY f.created_at DESC LIMIT 100`
-      , [auth.id]
+        WHERE f.hidden_at IS NULL AND f.exchange_id=$2 ORDER BY f.created_at DESC LIMIT 100`
+      , [auth.id, auth.exchangeId]
     );
     return { items: result.rows.map((row) => serializeFeedEvent(row, { role: auth.role, stockId: auth.stockId })) };
   });
@@ -156,16 +157,16 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
     const auth = request.auth!;
     const stockId = String((request.params as { id?: string }).id ?? "");
     const stockResult = await pool.query<{
-      id: string; display_name: string; ticker: string; starts_at: Date; opening_price: string;
+      id: string; display_name: string; ticker: string; season_id: string; starts_at: Date; opening_price: string;
       current_price: string; seasonal_aura: string;
     }>(
       `SELECT ps.id, ps.display_name, ps.ticker::text, ps.seasonal_aura,
-              s.starts_at, mp.opening_price::text,
+              s.id AS season_id, s.starts_at, mp.opening_price::text,
               (mp.credit_reserve/mp.share_reserve)::text AS current_price
-         FROM person_stocks ps
+         FROM listings ps
          JOIN market_pools mp ON mp.stock_id=ps.id
          JOIN seasons s ON s.id=mp.season_id AND s.status='ACTIVE'
-        WHERE ps.id=$1 AND ps.is_active=true`, [stockId]
+        WHERE ps.id=$1 AND ps.exchange_id=$2 AND ps.is_active=true`, [stockId, auth.exchangeId]
     );
     const stock = stockResult.rows[0];
     if (!stock) throw notFound("That stock is not active");
@@ -176,10 +177,9 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
       `SELECT t.id, t.side, t.quantity::text, t.gross_amount::text, t.created_at,
               COALESCE(actor.display_name,u.username::text,'System') AS actor_name
          FROM trades t
-         JOIN seasons s ON s.id=t.season_id AND s.status='ACTIVE'
          LEFT JOIN users u ON u.id=t.user_id
-         LEFT JOIN person_stocks actor ON actor.owner_user_id=t.user_id
-        WHERE t.stock_id=$1 ORDER BY t.created_at, t.id`, [stockId]
+         LEFT JOIN listings actor ON actor.owner_user_id=t.user_id AND actor.exchange_id=t.exchange_id
+        WHERE t.season_id=$2 AND t.stock_id=$1 ORDER BY t.created_at, t.id`, [stockId, stock.season_id]
     );
     const points = replayPriceHistory(stock.starts_at, tradesResult.rows.map((trade) => ({
       id: trade.id,
@@ -204,16 +204,16 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
              FROM market_price_ticks t
              LEFT JOIN feed_events f ON f.subject_stock_id=t.stock_id
               AND f.kind IN ('TRADE','LIQUIDATION') AND f.payload->>'tradeId'=t.reference_id::text
-            WHERE t.season_id=(SELECT id FROM seasons WHERE status='ACTIVE') AND t.stock_id=$1
+            WHERE t.season_id=$2 AND t.stock_id=$1
            UNION ALL
            SELECT tr.created_at,tr.execution_price::text,'TRADE',tr.id,false,f.id,tr.id
              FROM trades tr
              LEFT JOIN feed_events f ON f.subject_stock_id=tr.stock_id
               AND f.kind IN ('TRADE','LIQUIDATION') AND f.payload->>'tradeId'=tr.id::text
-            WHERE tr.season_id=(SELECT id FROM seasons WHERE status='ACTIVE') AND tr.stock_id=$1
+            WHERE tr.season_id=$2 AND tr.stock_id=$1
               AND NOT EXISTS (SELECT 1 FROM market_price_ticks tick WHERE tick.reference_id=tr.id)
          ) history
-        ORDER BY history.timestamp,history.row_id`, [stockId]
+        ORDER BY history.timestamp,history.row_id`, [stockId, stock.season_id]
     );
     const ticks = ticksResult.rows.map((tick) => ({
       timestamp: tick.timestamp.toISOString(),
@@ -233,8 +233,8 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
               COALESCE(v.upvotes,0)::int AS upvotes, COALESCE(v.downvotes,0)::int AS downvotes,
               COALESCE(v.vote_score,0)::int AS vote_score, COALESCE(v.viewer_vote,0)::int AS viewer_vote
          FROM feed_events f
-         LEFT JOIN person_stocks actor_stock ON actor_stock.owner_user_id=f.actor_id
-         LEFT JOIN person_stocks subject ON subject.id=f.subject_stock_id
+         LEFT JOIN listings actor_stock ON actor_stock.owner_user_id=f.actor_id AND actor_stock.exchange_id=f.exchange_id
+         LEFT JOIN listings subject ON subject.id=f.subject_stock_id
          LEFT JOIN LATERAL (
            SELECT COUNT(*) FILTER (WHERE direction=1) AS upvotes,
                   COUNT(*) FILTER (WHERE direction=-1) AS downvotes,
@@ -260,13 +260,14 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get("/api/leaderboards", { preHandler: guard() }, async () => {
+  app.get("/api/leaderboards", { preHandler: guard() }, async (request) => {
+    const exchangeId = request.auth!.exchangeId;
     const aura = await pool.query(
       `SELECT id, display_name, ticker::text, seasonal_aura, career_aura
-         FROM person_stocks WHERE is_active=true ORDER BY seasonal_aura DESC, display_name LIMIT 25`
+         FROM listings WHERE is_active=true AND exchange_id=$1 ORDER BY seasonal_aura DESC, display_name LIMIT 25`, [exchangeId]
     );
     const wealth = await pool.query(
-      `WITH active AS (SELECT id FROM seasons WHERE status='ACTIVE'), balances AS (
+      `WITH active AS (SELECT id FROM seasons WHERE exchange_id=$1 AND status='ACTIVE'), balances AS (
          SELECT split_part(account_key, ':', 2)::uuid AS user_id, SUM(amount) AS cash
            FROM cash_ledger_entries, active
           WHERE account_key LIKE 'USER:%:CASH:' || active.id::text GROUP BY 1
@@ -278,9 +279,9 @@ export async function registerReadRoutes(app: FastifyInstance): Promise<void> {
        )
        SELECT u.id,ps.display_name,ps.ticker::text,
               (COALESCE(b.cash,0)+COALESCE(e.marked_value,0))::text AS net_worth
-         FROM users u JOIN person_stocks ps ON ps.owner_user_id=u.id
+         FROM users u JOIN listings ps ON ps.owner_user_id=u.id AND ps.exchange_id=$1
          LEFT JOIN balances b ON b.user_id=u.id LEFT JOIN exposure e ON e.user_id=u.id
-        WHERE ps.is_active=true ORDER BY COALESCE(b.cash,0)+COALESCE(e.marked_value,0) DESC LIMIT 25`
+        WHERE ps.is_active=true ORDER BY COALESCE(b.cash,0)+COALESCE(e.marked_value,0) DESC LIMIT 25`, [exchangeId]
     );
     return { aura: aura.rows, wealth: wealth.rows };
   });
