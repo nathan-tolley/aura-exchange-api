@@ -18,7 +18,8 @@ Work top to bottom. Tick a box only when its check passes and `pnpm check` is gr
   - Commit this on its own.
 - [x] Read the friend's new code since `5cb2b21` and write `docs/aura/NOTES.md` → "What exists".
   - List every route, table and job, and map each to the `/v1` operation or engine piece it becomes (keep / adapt / replace / drop).
-- [ ] Run the existing tests. **Check:** `pnpm check` passes on the untouched branch, or the failures are written down in NOTES.md.
+- [x] Run the existing tests. **Check:** `pnpm check` passes on the untouched branch, or the failures are written down in NOTES.md.
+  - 2026-10-24: passes (run in a Node 24 container; see NOTES.md → Checks).
 
 ### 0.2 Error shape, idempotency, versioning plumbing
 - [ ] `AppError` and one error handler producing the `API-CONTRACT.md` shape. Map the existing `badRequest`/`forbidden` helpers onto it.

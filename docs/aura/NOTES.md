@@ -183,7 +183,7 @@ These matter when `/v1` and the engine replace the old behaviour. Where `DECISIO
   - `/api/stocks/:id/history` also names traders in its replayed points; that stays a console-only route.
 - **Error codes with no contract code yet.**
   - The code raises `INSUFFICIENT_SHARES` and `SHARES_RESERVED` (selling more than you hold or have free), `INVALID_COVER`, `QUOTE_USED`, `QUOTE_EXPIRED`, `INSUFFICIENT_LIQUIDITY`, `INVALID_QUANTITY`, `DUPLICATE_TICKER`, and a generic `FORBIDDEN` (role checks).
-  - The spec's `ErrorCode` enum is closed. Plan for 0.2/0.5:
+  - `Error.code` in the spec is an open string; the `ErrorCode` enum only documents the known codes, so new codes are additive. Plan for 0.2/0.5:
     - map `QUOTE_EXPIRED`/`QUOTE_USED` to `QUOTE_STALE`;
     - map ticker-taken to the `TickerCheck` response (not an error);
     - map quantity checks to `VALIDATION`;
@@ -201,4 +201,24 @@ Plumbing decisions that are mine to make. Game rules go to `DECISIONS.md` instea
 
 ## Checks
 
-_Filled in by the last 0.1 step._
+### How checks run (until Node 24 is on the host)
+
+pnpm 11.25.0 (pinned in `package.json`) needs Node ≥ 22.13. The host only has Node 20.20.0 (nvm4w), and switching the global Node is Nathan's call. So `pnpm` runs in the Dockerfile's base image, with `node_modules` and the pnpm store in Docker volumes (the Linux native builds of argon2, sharp and esbuild never land in the OneDrive folder):
+
+```powershell
+docker run --rm -e CI=true -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 `
+  -v "${PWD}:/app" -v aura_api_node_modules:/app/node_modules -v aura_pnpm_store:/pnpm-store `
+  -w /app node:24-bookworm-slim `
+  sh -c "corepack enable && pnpm config set store-dir /pnpm-store && pnpm install --frozen-lockfile && pnpm check"
+```
+
+The build writes `dist-api/` and `web/dist/` into the repo folder; both are gitignored.
+
+### Baseline, 2026-10-24 (0.1, untouched `aura-v1` = `49a0eaf` + docs)
+
+- `pnpm install --frozen-lockfile`: OK. pnpm 11.25.0 on Node 24 (`node:24-bookworm-slim`); 184 packages; the lockfile is current and passes pnpm's supply-chain policy check.
+- `pnpm check`: **passes**.
+  - Typecheck: server and web, TypeScript 7.0.2.
+  - Tests: vitest 5.0.5, 8 files, 23 tests, all green.
+  - Build: `tsc` for the API, vite 8.3.5 for the web.
+- No DB-backed tests exist yet; everything above is pure.
