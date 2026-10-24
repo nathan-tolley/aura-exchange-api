@@ -192,6 +192,69 @@ These matter when `/v1` and the engine replace the old behaviour. Where `DECISIO
 - **Rate limit.** There's one global 200/min per IP. `/v1` needs a typed `429 RATE_LIMITED` with `retryAfterSeconds`.
 - **`market-open` clears every `halted_until`**, including the `'infinity'` that marks a delisted pool. That's harmless today because quotes also check `is_active`, but the halts table replaces it anyway.
 
+## Plan for 0.2–0.4
+
+Written at the end of 0.1. Each bullet is about one commit.
+
+### 0.2 Error shape, version gate, idempotency, health, contract tests
+
+1. **App factory.** Move `src/server.ts` into `src/app.ts` → `buildApp()`, so tests can `app.inject()` without listening. `server.ts` just migrates-checks and listens. No behaviour change for `/api`.
+2. **Contract errors.**
+   - Rework `AppError` in `src/errors.ts` to carry `code`, `httpStatus`, `params` (strings), `action` and `retryable`, with a per-code defaults table copied from `API-CONTRACT.md`. Keep `badRequest`/`forbidden`/… as thin wrappers so `/api` throw sites don't change.
+   - One `setErrorHandler`:
+     - `/v1/*` gets `{ error: { code, message, params, retryable, action } }`;
+     - `/api/*` keeps `{ error, message, details }`.
+   - Zod errors become `VALIDATION {field, rule}`; rate-limit errors become `RATE_LIMITED {retryAfterSeconds}`; unknown errors become `SERVER {reference: requestId}`; unmatched `/v1` routes become `NOT_FOUND`.
+3. **Version gate.**
+   - An `onRequest` hook on `/v1`: `X-App-Build` below `MIN_APP_BUILD` (env, default 1) → `426 UPDATE_REQUIRED {minBuild}`.
+   - A missing header is allowed (web console, curl, tests).
+4. **Idempotency.**
+   - Migration `012_idempotency_keys.sql`: `(scope, key)` primary key, where scope is the user id, or `anon` before sign-in. Also stores method + route, a body hash, status, response JSON and `expires_at` (24 h).
+   - A preHandler on every `/v1` POST/PATCH/DELETE: the header is required (`400 VALIDATION {field: Idempotency-Key}`). A replay returns the stored response; the same key with a different body → `409 IDEMPOTENCY_MISMATCH`; the same key still in flight → `409 IDEMPOTENCY_IN_PROGRESS` (new additive code, retryable). Store 2xx/4xx responses, never 5xx.
+   - The worker purges expired rows. `trades (user, idempotency_key)` stays as the second guard.
+5. **`GET /v1/health`.**
+   - Returns `status`, `serverTime`, `minBuild` and `lastGoodUpdate` (the last worker heartbeat).
+   - `DEGRADED` when the heartbeat is older than 30 s. `MAINTENANCE` comes from `MAINTENANCE_UNTIL` (env) and makes every other `/v1` route `503 MAINTENANCE`.
+6. **Contract-test harness.**
+   - Add `ajv` (2020-12), `ajv-formats` and `yaml`.
+   - `tests/contract/` loads `openapi/v1.yaml` and validates every response by operation + status.
+   - DB-backed tests use a `aura_test` database in a dev Postgres. A new `compose.dev.yaml` runs only `postgres:18` on `127.0.0.1:5432`, matching `config.ts`'s default `DATABASE_URL`, because `compose.yaml`'s postgres has no host port.
+   - `pnpm check` then needs that container running; NOTES.md will say so.
+   - **Check:** `/health`, `426 UPDATE_REQUIRED`, `400 VALIDATION` and `409 IDEMPOTENCY_MISMATCH` validate against the spec.
+
+### 0.3 Multi-tenancy
+
+1. **Migration `013_exchanges.sql`.**
+   - `exchanges`: name, IANA timezone, `pre_open`/`open`/`close`/`after_close` local times, fee and extended fee rates, `min_listings_to_open` (default 3), a settings JSON (quiet decay, borrow rate, allowance), created by and at.
+   - `memberships`: `(exchange_id, user_id)` unique, role `MEMBER`/`MODERATOR`/`ADMIN`, `joined_at`, `listing_consent_at`, `opted_out_at`.
+   - `person_stocks` becomes `listings`, with `exchange_id` and `membership_id`. A compatibility view named `person_stocks` keeps the old `/api` SQL working until `/api` is retired. (If the view fights `FOR UPDATE`/`ON CONFLICT` anywhere, fall back to keeping the table name and recording why.)
+2. **`exchange_id` on every game table**, backfilled to one "Default" exchange (the current `TZ`, default hours). Today's users become members; OWNER becomes ADMIN.
+   - Game tables: seasons, pools, positions, quotes, trades, orders, events, rulings, votes, polls, appeals, feed, notifications, glossary, dividends, index snapshots, invites, predictions, options, moderation and audit.
+   - Uniques become per exchange: the one active season, ticker, one listing per member, glossary phrase.
+   - Existing tickers with digits don't match the spec's `^\$[A-Z]{3,5}$`. The migration leaves them as they are, and the `/v1` serializers will flag any.
+3. **Scoping.**
+   - Every service takes an `exchangeId`; `/api` routes pin to the Default exchange; the worker loops over exchanges.
+   - A `requireMembership` guard: exchange routes → `403 NOT_A_MEMBER {exchangeId}`; resources (listing, order, event) from another exchange → `404 NOT_FOUND`, so nothing leaks that they exist.
+4. **`minListingsToOpen`.** `tradingEnabled = listedCount ≥ minListingsToOpen`, and quotes/trades are refused below it.
+5. **Check:** a DB test with two exchanges (members, listings, trades, feed) proves every scoped query and route returns only its own exchange's data.
+
+### 0.4 Token auth
+
+1. **Migration `014_token_auth.sql`.**
+   - `users.email` (citext, unique, nullable for console-only users) and `users.display_name`. `password_hash` becomes nullable.
+   - `login_codes`: HMAC-SHA256 of the 6-digit code, 10-minute expiry, 5 attempts, consumed flag.
+   - `refresh_tokens`: hash, `family_id`, parent, `used_at`, `revoked_at`, 30-day expiry.
+2. **`POST /auth/email/start`.**
+   - Always `204`, so it never reveals whether an email exists.
+   - Rate-limited per email and per IP → `429 RATE_LIMITED`. A new code supersedes older ones.
+   - An `EmailSender` interface; the dev implementation logs the code. The provider is open question 8.
+3. **`POST /auth/email/verify`** finds or creates the user, then returns a `jose` HS256 access token (15 min, `JWT_SECRET` env, required in production) and a refresh token.
+   - SCREENS.md needs "wrong code" and "code expired" as separate states, and the contract has no codes for them. Add `LOGIN_CODE_INVALID {attemptsLeft}` and `LOGIN_CODE_EXPIRED` as additive codes, logged in `openapi/CHANGES.md`, and tell Nathan so the app syncs.
+4. **`POST /auth/refresh`** rotates the pair; reusing a used token revokes the whole family → `401 AUTH_EXPIRED`. **`POST /auth/logout`** revokes the family → `204`.
+5. **Bearer guard** on `/v1` (except `/health` and `/auth/*`). An expired or invalid token → `401 AUTH_EXPIRED`. Cookies and CSRF stay on `/api`.
+6. **`GET /me`**: the user plus their memberships.
+7. **Check:** contract tests for all five auth operations and `/me`, plus a test that reusing a refresh token revokes the family.
+
 ## Plumbing choices
 
 Plumbing decisions that are mine to make. Game rules go to `DECISIONS.md` instead.
