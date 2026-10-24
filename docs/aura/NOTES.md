@@ -293,6 +293,15 @@ Plumbing decisions that are mine to make. Game rules go to `DECISIONS.md` instea
   - `/api/admin/diagnostics/jobs` and `/api/health` stay server-wide: they're the operator's views.
 - 2026-10-24: `notifyUser(client, exchangeId | null, userId, kind, payload)`. `notifyStockOwner` takes the exchange from the listing.
 - 2026-10-24: `minListingsToOpen` is stored per exchange, and `tradingState()` (`src/services/exchange-service.ts`) computes `tradingEnabled`. It will gate `/v1` quotes and trades in 0.5. The legacy `/api` isn't gated, so the friend's console behaves as before; the 3-listing rule is still awaiting Nathan's OK (DECISIONS.md).
+- 2026-10-24: **the worker is per exchange.**
+  - The jobs moved to `src/jobs/schedulers.ts` (exported and tested); `worker.ts` is just the loop.
+  - `runServerSchedulers` runs the row-by-row jobs that never mix exchanges in one transaction: limit fills, liquidations, halt-vote resolution, option settlement, and the idempotency and `scheduled_runs` purges.
+  - `runExchangeSchedulers(exchange)` runs everything else on the exchange's own timezone, with run-once keys like `allowance:<exchangeId>:<date>`: ambient motion (one transaction per exchange), index snapshots, season close, allowance, dividends, borrow fees, market open.
+  - Migration 014 copies the already-completed keys into that form, so a mid-Monday deploy can't pay the allowance or dividends twice.
+  - A failing job is logged and retried on the next loop. It no longer takes down the worker or another exchange's schedule (an exception used to exit the process).
+- 2026-10-24: **two more existing bugs fixed** (both on the friend's `master`):
+  - The season-close standings query passed one parameter as `$1::text` and compared it with a uuid. Postgres rejects that (`uuid = text`), so seasons never closed and `pilot-reset` would time out.
+  - The daily `market-open` cleared every `halted_until`, including the `'infinity'` that marks a delisted pool. It now leaves delisted pools alone.
 
 ## Checks
 
