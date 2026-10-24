@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { config } from "../config.js";
 import { appError } from "../errors.js";
+import { registerIdempotency } from "./idempotency.js";
 import { isoTime } from "./serialize.js";
 import { registerSystemRoutes } from "./system-routes.js";
 
@@ -38,6 +39,9 @@ export async function registerV1(app: FastifyInstance, options: V1Options = defa
       if (request.url === `${V1_PREFIX}/health` || request.url.startsWith(`${V1_PREFIX}/health?`)) return;
       throw appError("MAINTENANCE", { until: isoTime(options.maintenanceUntil), reference: request.id }, "The exchange is down for maintenance");
     });
+
+    // Until bearer auth (0.4) every key is in the "anon" scope; then it becomes the signed-in user's id.
+    registerIdempotency(v1, { scopeOf: () => "anon" });
 
     v1.setNotFoundHandler(async (request) => {
       throw appError("NOT_FOUND", { resource: "route" }, `No route for ${request.method} ${request.url}`);

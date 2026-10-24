@@ -11,6 +11,7 @@ import { processOpenLimitOrders } from "./services/limit-order-service.js";
 import { terminateOpenLimitOrders } from "./services/limit-order-lifecycle.js";
 import { notifyUser } from "./services/notification-service.js";
 import {settleExpiredOptions,settleSeasonDerivatives} from "./services/derivatives-service.js";
+import { purgeExpiredKeys } from "./services/idempotency-service.js";
 
 interface JobRow { id: string; type: string; payload: Record<string, unknown>; attempts: number }
 const workerId = `${os.hostname()}:${process.pid}`;
@@ -381,6 +382,7 @@ async function runSchedulers(): Promise<void> {
   const fiveMinuteKey = Math.floor(Date.now() / 300_000);
   const minuteKey = Math.floor(Date.now() / 60_000);
   const motionKey = Math.floor(Date.now() / 15_000);
+  const hourKey = Math.floor(Date.now() / 3_600_000);
   await runOnce(`ambient-motion:${motionKey}`, applyAmbientMarketMotion);
   await runOnce(`limit-orders:${motionKey}`, processOpenLimitOrders);
   await runOnce(`indices:${fiveMinuteKey}`, snapshotIndices);
@@ -388,6 +390,7 @@ async function runSchedulers(): Promise<void> {
   await runOnce(`aura-farming:${minuteKey}`, resolveExpiredAuraFarming);
   await runOnce(`option-settlement:${minuteKey}`,settleExpiredOptions);
   await runOnce(`season-check:${dateKey}:${parts.hour}`, closeExpiredSeason);
+  await runOnce(`idempotency-purge:${hourKey}`, async () => { await purgeExpiredKeys(pool); });
   if (parts.weekday === "Mon" && Number(parts.hour) >= 9) {
     await runOnce(`allowance:${dateKey}`, () => grantAllowance(dateKey));
     await runOnce(`dividends:${dateKey}`, () => settleDividends(dateKey));

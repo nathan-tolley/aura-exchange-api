@@ -269,6 +269,14 @@ Plumbing decisions that are mine to make. Game rules go to `DECISIONS.md` instea
 - 2026-10-24: timestamps go out through `isoTime()` (`src/v1/serialize.ts`): UTC, whole seconds, `Z`.
 - 2026-10-24: contract tests. `tests/contract/openapi.ts` loads `openapi/v1.yaml` into ajv (2020-12 + formats) and validates a body by operation + status (`expectResponseMatchesSpec`) or by component schema (`expectSchema`). An undeclared status fails the test. A test keeps `errorCodes` in `src/errors.ts` equal to the spec's `ErrorCode` enum.
 - 2026-10-24: `applyMigrations(pool)` moved into `migration-service.ts`; `scripts/migrate.ts` and the test setup both use it.
+- 2026-10-24: idempotency (`idempotency_keys`, `src/v1/idempotency.ts`, `src/services/idempotency-service.ts`).
+  - Keys are scoped per user (`anon` until 0.4) for 24 h. The request hash is `sha256(method, path + query, canonical JSON body)`, so key order in the body doesn't matter.
+  - The preHandler claims the key with an insert. A taken key with another hash → `IDEMPOTENCY_MISMATCH`; still running → `IDEMPOTENCY_IN_PROGRESS` (retryable); done → the stored status and body are replayed byte for byte, with an `Idempotent-Replayed: true` header.
+  - `onSend` stores 2xx/4xx and releases the key on 5xx. A claim older than 5 minutes with no response is presumed dead and released.
+  - Known gap: a crash after a handler commits but before `onSend` stores leaves a claimed key with no response, so the retry runs again after 5 minutes. Trades keep their own `(user, idempotency_key)` unique guard against that; other money-moving writes should do the same when they arrive.
+  - The worker purges expired keys hourly.
+- 2026-10-24: spec `1.0.0-draft.3` declares the error responses every operation can already return (429 and 503 everywhere; 400 and 409 on every write). The contract tests are strict about undeclared statuses, so the spec had to say so.
+- 2026-10-24: the error handler lives in `src/error-handler.ts`, so tests can mount `/v1` pieces on a small Fastify app.
 
 ## Checks
 
