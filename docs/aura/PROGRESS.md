@@ -4,7 +4,7 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 
 ## Now
 - Step: 0.3 → multi-tenancy: migration `013_exchanges.sql`
-- State: in progress (0.2 done)
+- State: not started (0.2 done; paused at the milestone boundary so the contract changes reach the app session)
 - Next action: design 013: `exchanges`, `memberships`, `person_stocks` → `listings` (+ compatibility view), `exchange_id` on game tables, Default-exchange backfill. First check whether a view named `person_stocks` survives the `/api` SQL (`FOR UPDATE`, `ON CONFLICT`, `INSERT … RETURNING`)
 - Uncommitted work: none
 - Waiting on Nathan:
