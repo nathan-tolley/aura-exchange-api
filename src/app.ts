@@ -20,11 +20,12 @@ import { registerVoteRoutes } from "./routes/vote-routes.js";
 import { registerChatGPTRoutes } from "./routes/chatgpt-routes.js";
 import { registerAuraFarmingRoutes } from "./routes/aura-farming-routes.js";
 import {registerDerivativesRoutes} from "./routes/derivatives-routes.js";
-import { isV1Request, registerV1 } from "./v1/index.js";
+import { defaultV1Options, isV1Request, registerV1, type V1Options } from "./v1/index.js";
 import { forbidden, unauthorized } from "./errors.js";
 
 export interface BuildAppOptions {
   logger?: FastifyServerOptions["logger"];
+  v1?: Partial<V1Options>;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -102,7 +103,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await registerChatGPTRoutes(app);
   await registerAuraFarmingRoutes(app);
   await registerDerivativesRoutes(app);
-  await registerV1(app);
+  await registerV1(app, { ...defaultV1Options(), ...options.v1 });
 
   const uploadRoot = path.resolve("uploads");
   await app.register(fastifyStatic, { root: uploadRoot, prefix: "/uploads/", decorateReply: false });

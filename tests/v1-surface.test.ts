@@ -28,6 +28,40 @@ describe("/v1 surface", () => {
   });
 });
 
+describe("/v1 app version gate", () => {
+  it("lets requests without X-App-Build through", async () => {
+    const response = await app.inject({ method: "GET", url: "/v1/does-not-exist" });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it("answers builds below MIN_APP_BUILD with 426 UPDATE_REQUIRED", async () => {
+    const response = await app.inject({ method: "GET", url: "/v1/does-not-exist", headers: { "x-app-version": "0.9.0", "x-app-build": "0" } });
+    expect(response.statusCode).toBe(426);
+    expect(response.json().error).toMatchObject({ code: "UPDATE_REQUIRED", params: { minBuild: "1" }, action: "UPDATE_APP", retryable: false });
+  });
+
+  it("rejects a malformed build number", async () => {
+    const response = await app.inject({ method: "GET", url: "/v1/does-not-exist", headers: { "x-app-build": "thirty-seven" } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toMatchObject({ code: "VALIDATION", params: { field: "X-App-Build", rule: "integer" } });
+  });
+});
+
+describe("/v1 maintenance", () => {
+  it("answers 503 MAINTENANCE with the end time while it lasts", async () => {
+    const until = new Date(Date.now() + 60 * 60 * 1000);
+    const maintenance = await buildApp({ logger: false, v1: { maintenanceUntil: until } });
+    try {
+      const response = await maintenance.inject({ method: "GET", url: "/v1/does-not-exist" });
+      expect(response.statusCode).toBe(503);
+      expect(response.json().error).toMatchObject({ code: "MAINTENANCE", retryable: true, action: "RETRY", params: { until: until.toISOString().replace(/\.\d{3}Z$/, "Z") } });
+      expect(typeof response.json().error.params.reference).toBe("string");
+    } finally {
+      await maintenance.close();
+    }
+  });
+});
+
 describe("legacy /api errors", () => {
   it("keep their { error, message } shape", async () => {
     const response = await app.inject({ method: "GET", url: "/api/auth/session" });

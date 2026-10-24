@@ -23,7 +23,7 @@ Work top to bottom. Tick a box only when its check passes and `pnpm check` is gr
 
 ### 0.2 Error shape, idempotency, versioning plumbing
 - [x] `AppError` and one error handler producing the `API-CONTRACT.md` shape. Map the existing `badRequest`/`forbidden` helpers onto it.
-- [ ] Middleware that reads `X-App-Version` / `X-App-Build` and returns `426 UPDATE_REQUIRED` below `MIN_APP_BUILD` (env, default 1).
+- [x] Middleware that reads `X-App-Version` / `X-App-Build` and returns `426 UPDATE_REQUIRED` below `MIN_APP_BUILD` (env, default 1).
 - [ ] Idempotency: an `idempotency_keys` table and a preHandler for all `/v1` writes.
 - [ ] `GET /v1/health`.
 - [ ] Contract-test harness: load `openapi/v1.yaml` and validate the response of every implemented route.
