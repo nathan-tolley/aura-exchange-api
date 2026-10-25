@@ -20,6 +20,10 @@ const schema = z.object({
   INVITE_URL_BASE: z.string().default("aura-exchange://invite/"),
   MIN_APP_BUILD: z.coerce.number().int().min(1).default(1),
   MAINTENANCE_UNTIL: z.preprocess((value) => (value === "" ? undefined : value), z.coerce.date().optional()),
+  /** Browser origins allowed to call /v1, comma-separated: the app's Chrome preview is http://localhost:5555. Empty = none. */
+  CORS_ORIGINS: z.string().default("")
+    .transform((value) => value.split(",").map((item) => item.trim()).filter(Boolean))
+    .refine((origins) => origins.every((origin) => URL.canParse(origin) && new URL(origin).origin === origin), "CORS_ORIGINS takes exact origins, like http://localhost:5555"),
   TZ: z.string().default("America/New_York")
 });
 

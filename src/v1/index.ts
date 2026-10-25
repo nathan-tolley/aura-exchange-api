@@ -4,6 +4,7 @@ import { appError } from "../errors.js";
 import { LogEmailSender, type EmailSender } from "../services/email-sender.js";
 import { registerAuthRoutes } from "./auth-routes.js";
 import { registerBearerAuth } from "./bearer.js";
+import { registerCors } from "./cors.js";
 import { registerExchangeRoutes } from "./exchange-routes.js";
 import { registerInviteRoutes } from "./invite-routes.js";
 import { registerMarketRoutes } from "./market-routes.js";
@@ -29,18 +30,24 @@ export interface V1Options {
   loginCodesPerIpPerHour: number;
   /** The clock for market sessions (tests pin it). */
   now: () => Date;
+  /** Browser origins allowed cross-origin (CORS_ORIGINS). */
+  corsOrigins: readonly string[];
 }
 
 export const defaultV1Options = (): V1Options => ({
   minAppBuild: config.MIN_APP_BUILD,
   maintenanceUntil: config.MAINTENANCE_UNTIL,
   loginCodesPerIpPerHour: 20,
-  now: () => new Date()
+  now: () => new Date(),
+  corsOrigins: config.CORS_ORIGINS
 });
 
 /** The /v1 surface for the iPhone app. Its contract is openapi/v1.yaml. */
 export async function registerV1(app: FastifyInstance, options: V1Options = defaultV1Options()): Promise<void> {
   await app.register(async (v1) => {
+    // First, so a preflight is answered before the version gate, maintenance and the bearer guard.
+    registerCors(v1, options.corsOrigins);
+
     v1.addHook("onRequest", async (request) => {
       const header = request.headers["x-app-build"];
       if (header === undefined) return;

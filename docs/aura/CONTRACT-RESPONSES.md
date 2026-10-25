@@ -8,6 +8,25 @@ Verdicts:
 - **deferred**: agreed in principle, specified with the feature's own phase.
 - **declined**: not doing it, with the reason and what to use instead.
 
+## Request #10 (answered 2026-10-25, no spec change)
+
+**#10, CORS for the web preview: accepted.** The server is ready, but the live box only gets it after a redeploy with Nathan's OK.
+
+- `/v1` allows an exact list of origins from `CORS_ORIGINS` (comma-separated; empty means none, and never `*`). For the box, that's `CORS_ORIGINS=http://localhost:5555`.
+- **Preflights** (`OPTIONS` with `Access-Control-Request-Method`) get `204` on any `/v1` path, before the version gate and the bearer guard, with:
+  - `Access-Control-Allow-Origin` (the origin itself)
+  - `Access-Control-Allow-Methods: GET, POST, PATCH, DELETE`
+  - `Access-Control-Allow-Headers: Authorization, Content-Type, Idempotency-Key, X-App-Version, X-App-Build`
+  - `Access-Control-Max-Age: 600`
+- **Every other `/v1` response**, errors included (401, 426, 429, 503…), gets these headers, so the app can read the error shape:
+  - `Access-Control-Allow-Origin`
+  - `Vary: Origin`
+  - `Cross-Origin-Resource-Policy: cross-origin`
+  - `Access-Control-Expose-Headers: Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Idempotent-Replayed`
+- **No credentials.** `/v1` uses bearer tokens, never cookies, so `Access-Control-Allow-Credentials` isn't sent and the app mustn't set `withCredentials`.
+- **Other origins** get none of these headers, so the browser blocks them.
+- **`/v1/stream`** will check `Origin` against the same list when realtime lands (Phase 1). Native clients send no `Origin`, and they're always let through.
+
 ## Requests #2–#9 (answered 2026-10-25, spec `1.0.0-draft.7`)
 
 | # | Ask | Verdict | What the contract says now |
