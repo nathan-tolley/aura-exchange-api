@@ -10,7 +10,7 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - Waiting on Nathan:
   - **Spec draft.7: tell the app session to sync** `api/openapi.yaml` and API-CONTRACT.md (one rename for it: `feeRatePct` → `feeRate` in the liquidation model).
   - **Redeploy the box?** It runs `947ffc6`, so it serves neither draft.7 nor CORS. The redeploy would also add `CORS_ORIGINS=http://localhost:5555` to the box's `.env` (request #10). Needs his OK.
-  - **Push `aura-v1`?** The fork is OK with `karkys` (answered 2026-10-25), but each push still needs his OK. Local `aura-v1` is 4 commits ahead of `origin/aura-v1` (`192fa15`).
+  - **Merge `origin/master` into `aura-v1`?** karkys pushed `deeaa37` "Add casino, Swagger docs, and claim recovery" on 2026-10-25. It's not merged yet; CLAUDE.md asks for regular merges.
   - Sign in from the app's dev build against the live URL (Gate 0, part 2).
   - DECISIONS.md open question 12: base daily volatility 2% → 1.1%, so the simulator lands near 60/25/15. The engine default stays at 2% until he agrees.
   - Email provider for sign-in codes (open question 8): not needed for a test exchange (codes go to the host's log), needed before friends sign in.
@@ -54,3 +54,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-25 · contract requests #2–#9 · Spec draft.7, answers in `docs/aura/CONTRACT-RESPONSES.md`. Served now: `nextStimulusAt` (Portfolio and `INSUFFICIENT_CASH`), the receipt params on `INSUFFICIENT_CASH`/`SHORT_CAP`, `Membership.superInjunctionsPerSeason`, ASCII token examples. In the spec for Phase 1: `Position.liquidation`, `Event.denialPenaltyPct`; `changeAbs` and a 30 s heartbeat on `ticks` (API-CONTRACT.md). Deferred to Phase 2: #8, `ratingChange`, `SecCase`. One weekly-payout schedule shared by the worker and `nextStimulusAt`. Checked in a real Prism mock. 177 tests green.
 - 2026-10-25 · contract request #10 · CORS on `/v1` for an exact allow-list (`CORS_ORIGINS`, `src/v1/cors.ts`): preflights 204 before the version gate and bearer guard; every `/v1` reply, errors included, gets Allow-Origin, Vary, exposed rate-limit headers and CORP cross-origin; no credentials; `/api` untouched. No spec change. The live box needs a redeploy with `CORS_ORIGINS=http://localhost:5555` (Nathan's OK). 182 tests green.
 - 2026-10-25 · fork · Nathan: the fork is OK with `karkys`. DECISIONS.md open question 1 is answered. Each push still needs his OK; nothing pushed.
+- 2026-10-25 · push · With Nathan's OK: pushed `aura-v1` to `origin` as a fast-forward from `192fa15`; this commit is the new tip. No force, nothing to `master`. The fetch brought `origin/master` to `deeaa37` (karkys: casino, Swagger docs, claim recovery), which isn't merged.
