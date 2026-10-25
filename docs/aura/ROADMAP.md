@@ -54,11 +54,13 @@ Work top to bottom. Tick a box only when its check passes and `pnpm check` is gr
   - 2026-10-24: passes (`tests/contract/auth.test.ts`: every auth operation and `/me` validated against the spec; reuse revokes the family, and a retried refresh with the same key replays instead).
 
 ### 0.5 /v1 read and trade endpoints (x-phase 0 in the spec)
-- [ ] Exchanges: create, list and get; invites (create, preview, accept); ticker check; IPO with consent.
-- [ ] Market data: `/exchanges/{id}/market` (with sparkline and freshness), `/listings/{id}`, `/listings/{id}/candles` (with event markers).
-- [ ] Trading: `/quotes` (with `previous` when requoting, and the `short` block with liquidation price), `/trades` (`QUOTE_STALE` with old/new price), `/exchanges/{id}/portfolio`.
-- [ ] Rejections come back as the right codes with the params the app needs: `INSUFFICIENT_CASH` must include `maxQuantity`.
+- [x] Exchanges: create, list and get; invites (create, preview, accept); ticker check; IPO with consent.
+- [x] Market data: `/exchanges/{id}/market` (with sparkline and freshness), `/listings/{id}`, `/listings/{id}/candles` (with event markers).
+  - Event markers stay empty until the Phase 1 event pipeline.
+- [x] Trading: `/quotes` (with `previous` when requoting, and the `short` block with liquidation price), `/trades` (`QUOTE_STALE` with old/new price), `/exchanges/{id}/portfolio`.
+- [x] Rejections come back as the right codes with the params the app needs: `INSUFFICIENT_CASH` must include `maxQuantity`.
 - **Check:** every x-phase 0 operation passes its contract test, and the Prism mock and the real server return the same shapes.
+  - 2026-10-24: passes. `tests/contract/coverage.test.ts` covers every x-phase 0 operation; the harness's shape check enforces the same properties the mock serves.
 
 ### 0.6 Price-engine simulator
 - [ ] `src/engine/`: m(d) curve, fair value F = B×H with a 3-day hype half-life, gap of 40–120% plus 45-minute drift, mean reversion (2-day half-life), Student-t noise (df 4), the volatility spike, and re-solving AMM reserves to a target price.

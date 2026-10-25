@@ -70,6 +70,8 @@ describe("error contract", () => {
   it("has a harness that actually rejects bodies that break the spec", () => {
     expect(() => expectResponseMatchesSpec("get", "/health", 200, { status: "FINE", serverTime: "now", minBuild: "1", lastGoodUpdate: null })).toThrow(/does not match/);
     expect(() => expectResponseMatchesSpec("get", "/health", 418, {})).toThrow(/does not declare/);
+    const health = { status: "OK", serverTime: "2026-10-24T13:21:00Z", minBuild: 1, lastGoodUpdate: null };
+    expect(() => expectResponseMatchesSpec("get", "/health", 200, { ...health, debug: true })).toThrow(/\.debug is not in the spec/);
     expect(() => expectSchema("Error", { error: { code: "X", message: "m", params: { n: 1 }, retryable: false, action: "NONE" } })).toThrow(/does not match/);
   });
 

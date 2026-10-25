@@ -3,9 +3,9 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: 0.5 → phase-0 coverage and Prism parity (the 0.5 check)
-- State: in progress
-- Next action: a test that every x-phase 0 operation has a 2xx contract assertion; a shape check in the harness (every declared property present, no undeclared ones, recursively) so real responses match what Prism serves from the same spec; fix whatever it finds; tick 0.5
+- Step: 0.6 → price-engine simulator (`src/engine/`, `pnpm sim`)
+- State: not started (0.5 done)
+- Next action: read PLAN.md → The price engine; write `src/engine/` pure and seeded (seeded RNG, m(d) curve with the table test, fair value B×H with a 3-day hype half-life, 40–120% gap + 45-minute drift, 2-day mean reversion, Student-t df 4 noise, volatility spike, re-solving reserves to a target price), then `scripts/simulate.ts`
 - Uncommitted work: none
 - Waiting on Nathan:
   - Node 24 on the host? pnpm 11.25.0 needs Node ≥ 22.13; the host has 20.20.0. Checks run in a `node:24` container meanwhile (NOTES.md → Checks). Ask before changing the global Node.
@@ -35,3 +35,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-24 · 0.5 · `GET /exchanges/{id}/market`, `/listings/{id}`, `/listings/{id}/candles` with freshness, sparkline, AURA index, badges. 136 tests green.
 - 2026-10-24 · 0.5 · `POST /quotes` and `POST /trades` (shared `executeTrade` with the console; typed rejections with `maxQuantity`; hours, halts and the 3-listing rule). 149 tests green.
 - 2026-10-24 · 0.5 · `GET /exchanges/{id}/portfolio` (net worth incl. reserved cash, season/day change, positions, resting orders). 153 tests green.
+- 2026-10-24 · 0.5 · Phase-0 coverage test and the Prism-parity shape check; spec draft.5. 154 tests green. **0.5 done.**

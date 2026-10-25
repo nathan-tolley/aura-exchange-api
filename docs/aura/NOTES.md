@@ -318,6 +318,31 @@ Plumbing decisions that are mine to make. Game rules go to `DECISIONS.md` instea
 - Known gaps from 0.4:
   - Console users (username + password) have no email, so they can't sign in to the app until one is linked. That needs a way to add an email from the console, or to claim an existing listing by email. It can come with invites in 0.5.
   - A legacy ticker with digits wouldn't match the spec's `^\$[A-Z]{3,5}$`.
+- 2026-10-24: **0.5 market hours.**
+  - Sessions are computed per exchange in its timezone (`src/core/market-hours.ts`). Every day is a trading day (open question 3).
+  - Phase 0 only has market orders, so `/v1` quotes and trades need the regular session: CLOSED → `MARKET_CLOSED {opensAt, queuedEvents: "0"}`, PRE/AFTER → `ORDER_TYPE_NOT_ALLOWED {marketState}`. Limit orders for extended hours come with `/orders` in Phase 1.
+  - Boundaries are found by walking forward from now, so they can be an hour off on the two days a year the clocks change.
+  - `V1Options.now` lets tests pin the clock.
+- 2026-10-24: **0.5 trading.**
+  - New `/v1` IPOs get the plan's 4,000-share, A$400,000 pool; legacy pools stay at 1,000 / A$100,000.
+  - The money movement (`executeTrade`, `src/services/trade-execution.ts`) is shared with the console's execute route. Only the console still moves aura on a trade; `/v1` trades don't (PLAN.md drops trade-to-aura coupling).
+  - `/v1` has its own order rules (`checkOrder`, `src/services/order-checks.ts`), the same rules as the console's `validateOrder` but answering contract errors. That's two copies of one rulebook until `/api` is retired, so keep them in step.
+  - Every reducible rejection carries `maxQuantity`, the largest 0.0001-step quantity the same rules accept (binary search).
+  - `/trades` uses the `Idempotency-Key` header as the trade's `idempotency_key`, the second guard behind the idempotency layer.
+- 2026-10-24: **0.5 market data.**
+  - `prevClose` is the pool's `day_open_price`, which the daily market-open job resets. The sparkline and day high/low cover the last 24 hours (48 half-hour points); candles are UTC buckets.
+  - Badges: `HARD_TO_BORROW` above 20% short interest and `OTC_PINK` under 5.00.
+  - A halted pool shows `state: HALTED`, but `halt` is `null` and `LISTING_HALTED.haltId` is `""` until Phase 1's halts table.
+  - Events, markers, the indicated price and analyst notes are empty until Phase 1.
+- 2026-10-24: **0.5 invites.**
+  - Codes are multi-use for 7 days, 8 characters with no 0/O/1/I. The URL is `INVITE_URL_BASE` (default `aura-exchange://invite/`) plus the code.
+  - Exchanges are capped at 20 members (`settings.maxMembers`, open question 11).
+  - The legacy claim route now ignores exchange invites.
+- 2026-10-24: **0.5 portfolio.**
+  - Net worth includes cash reserved by resting buy orders.
+  - Season change is measured against what the season gave the member (`SEASON_GRANT` + `WEEKLY_ALLOWANCE`). Day change is Σ (long − short) × the move since the day's open.
+  - `openedAt` is the first trade on that listing this season.
+- 2026-10-24: **parity with the Prism mock.** For every success response, the contract harness also checks that every property the spec declares is present and nothing else is, recursively. The Prism mock serves exactly the declared properties, so real and mocked shapes can't drift. `tests/contract/coverage.test.ts` fails if any x-phase 0 operation lacks a validated success response.
 - 2026-10-24: **two more existing bugs fixed** (both on the friend's `master`):
   - The season-close standings query passed one parameter as `$1::text` and compared it with a uuid. Postgres rejects that (`uuid = text`), so seasons never closed and `pilot-reset` would time out.
   - The daily `market-open` cleared every `halted_until`, including the `'infinity'` that marks a delisted pool. It now leaves delisted pools alone.
