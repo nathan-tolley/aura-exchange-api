@@ -3,17 +3,16 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: 0.7 → deploy to Nathan's Ubuntu box (`tae.app.elicit-marketing.com`)
-- State: deployed `947ffc6` on the box and healthy inside it (`/v1/health` OK with a fresh worker heartbeat, reachable from the other Caddy as `aura-exchange-api:8787`). Public at `https://tae.app.elicit-marketing.com` since 2026-10-25 (Let's Encrypt certificate; smoke test passes). SSH works as `<user>` with the deploy key (`deploy.local` has the target). The box (Azure, Ubuntu 24.04, x86_64, 4 CPUs, 15 GB RAM, 4.5 GB disk free after our build) already runs another stack, `~/<other-stack>/deploy` (a `<user>` app, Ollama, and a Caddy on 80/443). So ours runs without its own Caddy (`compose.box.yaml`), with the API on that Caddy's network as `aura-exchange-api`.
-- Next action: Gate 0 part 2's last check: Nathan signs in from the app's dev build pointed at `https://tae.app.elicit-marketing.com/v1` (the code is in the API log; command in NOTES.md → Plan for 0.7), creates the test exchange and invites someone. The API is live: HTTPS verified, `pnpm smoke` passes.
+- Step: app contract requests #2–#9 (between Phase 0 and Phase 1). Phase 0 is done; the API is live at `https://tae.app.elicit-marketing.com/v1` (box `947ffc6`, details in NOTES.md → Plan for 0.7).
+- State: in progress. Resumed 2026-10-25 by a fresh session: tree clean at `571bcc6`, `pnpm check` green (173 tests).
+- Next action: decide each of the app's requests #2–#9 (`aura-exchange-app/docs/aura/CONTRACT-REQUESTS.md`, read only), write the answers to `docs/aura/CONTRACT-RESPONSES.md`, then implement the accepted ones as spec draft.7.
 - Uncommitted work: none
 - Waiting on Nathan:
+  - **The fork.** `origin/aura-v1` exists on `karkys/Aura-Exchange`: `192fa15` was pushed from this PC on 2026-10-25 at 11:45, and no transcript shows who approved it. Is the fork OK with `karkys` now? Until he answers: no more pushes, and no redeploy to the box without his OK. Local `aura-v1` is ahead of `origin/aura-v1`.
   - Sign in from the app's dev build against the live URL (Gate 0, part 2).
   - DECISIONS.md open question 12: base daily volatility 2% → 1.1%, so the simulator lands near 60/25/15. The engine default stays at 2% until he agrees.
   - Email provider for sign-in codes (open question 8): not needed for a test exchange (codes go to the host's log), needed before friends sign in.
-  - Spec draft.6 (named error examples): tell the app session to sync `api/openapi.yaml` again.
   - Node 24 on the host? pnpm 11.25.0 needs Node ≥ 22.13; the host has 20.20.0. Checks run in a `node:24` container meanwhile (NOTES.md → Checks). Ask before changing the global Node.
-  - The fork: is `karkys` OK with it? Nothing gets pushed until then.
   - DECISIONS.md open question 10: prediction markets and options (kept on `/api` only for now).
   - DECISIONS.md open question 11: the exchange size cap (20 members per exchange, `settings.maxMembers`, for now).
 
@@ -49,3 +48,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-25 · 0.7 · Deployed `947ffc6` to the box: Postgres 18, API (migrations on start) and worker up and healthy, beside the box's existing `<other-stack>` stack, which is untouched. Our Caddy is off (`compose.box.yaml`); the API is on that stack's network as `aura-exchange-api`. 4.5 GB disk left. Public HTTPS waits on DNS and Nathan's OK to add a site block to that stack's Caddyfile.
 - 2026-10-25 · 0.7 · With Nathan's OK: site block for `tae.app.elicit-marketing.com` in the box's <other-stack> Caddyfile, validated and reloaded; `<other-site>` 200 before and after. Certificate waits on DNS.
 - 2026-10-25 · 0.7 · DNS live; Caddy got the certificate; `pnpm smoke --base https://tae.app.elicit-marketing.com` passes (health OK with fresh worker heartbeat, 426 gate, 401 on `/me`, `/healthz` 200). Deploy box ticked; Gate 0 part 2 waits on Nathan signing in from the app's dev build.
+- 2026-10-25 · resume · Fresh session: tree clean at `571bcc6`, `pnpm check` green (173 tests). "Waiting on Nathan": dropped the draft.6 sync (the app synced it); the fork question now records that `origin/aura-v1` (`192fa15`) was pushed with no recorded approval, so no more pushes or redeploys until he answers.

@@ -55,6 +55,7 @@ What's settled, what changed since the plan, and what's still open. When this fi
 ## Open questions (ask Nathan; don't guess)
 
 1. **The fork.** Is the friend (`karkys` on GitHub) OK with us forking his repo, and does he want in? Needed before anything is pushed to a shared remote.
+   - 2026-10-25: `aura-v1` is already on his remote (`origin/aura-v1` = `192fa15`, pushed from Nathan's PC at 11:45), and no session transcript records the approval. Asked Nathan again; no further pushes until he answers.
 2. **Who is it for?** Just this friend group, or can anyone create an exchange?
 3. **Weekends.** Are markets open every day (proposed), or closed for a Monday gap?
 4. **Season resets.** Do prices reset to 100 every 8 weeks (proposed)?
