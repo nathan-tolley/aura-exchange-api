@@ -7,7 +7,7 @@ import type { V1Options } from "./index.js";
 export const WORKER_STALE_AFTER_MS = 30_000;
 
 export async function registerSystemRoutes(v1: FastifyInstance, options: V1Options): Promise<void> {
-  v1.get("/health", async () => {
+  v1.get("/health", { config: { public: true } }, async () => {
     const now = new Date();
     const heartbeat = await pool.query<{ updated_at: Date }>("SELECT updated_at FROM system_state WHERE key='worker_heartbeat'");
     const lastGoodUpdate = heartbeat.rows[0]?.updated_at ?? null;

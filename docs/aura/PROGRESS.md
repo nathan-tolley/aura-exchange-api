@@ -3,9 +3,9 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: 0.4 → `/auth/email/start` + `/auth/email/verify`, two new error codes
-- State: in progress
-- Next action: `src/v1/auth-routes.ts` (public routes: start → 204, per-email 5/h and per-IP limits; verify → TokenPair, `LOGIN_CODE_INVALID {attemptsLeft}` / `LOGIN_CODE_EXPIRED` as 401), add both codes to `src/errors.ts`, the spec (draft.4), API-CONTRACT.md and CHANGES.md; `src/v1/bearer.ts` (onRequest: parse Bearer, require it unless the route is `config.public`)
+- Step: 0.5 → `/v1` read and trade endpoints (x-phase 0)
+- State: not started (0.4 done)
+- Next action: start with exchanges: `POST /exchanges` (creator = ADMIN, season 1, pool sizes from PLAN), `GET /exchanges`, `GET /exchanges/{id}`; then invites (create, preview, accept), ticker check, IPO with consent. Decide how console users link an email (NOTES.md → Known gaps from 0.4)
 - Uncommitted work: none
 - Waiting on Nathan:
   - Node 24 on the host? pnpm 11.25.0 needs Node ≥ 22.13; the host has 20.20.0. Checks run in a `node:24` container meanwhile (NOTES.md → Checks). Ask before changing the global Node.
@@ -29,3 +29,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-24 · 0.3 · DB-wide isolation audit (`tests/db/isolation.test.ts`): every season/listing-referencing table has `exchange_id` + trigger, no cross-exchange rows, cross-exchange writes refused. 92 tests green.
 - 2026-10-24 · 0.3 · Console-side isolation test (a second exchange, owner listed on both): `/api` shows only Default data and 404s foreign ids; mutation-checked. 94 tests green. **0.3 done.**
 - 2026-10-24 · 0.4 · Migration 015 (email users, `login_codes`, `refresh_tokens`), `AUTH_SECRET`, login-code / token / email-sender services. 94 tests green.
+- 2026-10-24 · 0.4 · Email-code sign-in, rotating refresh families, bearer guard, `GET /me`; spec draft.4 (`LOGIN_CODE_INVALID`, `LOGIN_CODE_EXPIRED`). 112 tests green. **0.4 done.**

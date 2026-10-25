@@ -2,7 +2,7 @@
 openapi: 3.1.0
 info:
   title: Aura Exchange API
-  version: 1.0.0-draft.3
+  version: 1.0.0-draft.4
   description: The v1 contract between the iPhone app and the server. Rules that apply everywhere (money as strings, freshness, errors, statuses,
     realtime, idempotency) are in API-CONTRACT.md. Every operation is tagged x-phase.
 servers:
@@ -2278,6 +2278,8 @@ components:
       enum:
       - VALIDATION
       - AUTH_EXPIRED
+      - LOGIN_CODE_INVALID
+      - LOGIN_CODE_EXPIRED
       - FORBIDDEN
       - NOT_A_MEMBER
       - SELF_TRADE

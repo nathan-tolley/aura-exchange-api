@@ -16,6 +16,8 @@ interface ErrorDefaults {
 export const errorCodes = {
   VALIDATION: { status: 400, action: "NONE", retryable: false },
   AUTH_EXPIRED: { status: 401, action: "SIGN_IN", retryable: false },
+  LOGIN_CODE_INVALID: { status: 401, action: "NONE", retryable: false },
+  LOGIN_CODE_EXPIRED: { status: 401, action: "NONE", retryable: false },
   FORBIDDEN: { status: 403, action: "NONE", retryable: false },
   NOT_A_MEMBER: { status: 403, action: "NONE", retryable: false },
   SELF_TRADE: { status: 403, action: "NONE", retryable: false },

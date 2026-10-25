@@ -45,12 +45,13 @@ Work top to bottom. Tick a box only when its check passes and `pnpm check` is gr
     - `tests/contract/membership.test.ts`: `/v1` guard.
 
 ### 0.4 Token auth
-- [ ] Email one-time codes: a `login_codes` table with hashed codes, a 10-minute expiry and 5 attempts.
+- [x] Email one-time codes: a `login_codes` table with hashed codes, a 10-minute expiry and 5 attempts.
   - In development the code is logged instead of emailed; the email provider sits behind an interface.
-- [ ] `jose` access tokens (15 min) and rotating refresh-token families (reusing a token revokes the family).
-- [ ] Bearer auth on `/v1`. Cookies and CSRF stay only for `/api` and the web console.
-- [ ] `/auth/email/start`, `/auth/email/verify`, `/auth/refresh`, `/auth/logout`, `GET /me`.
+- [x] `jose` access tokens (15 min) and rotating refresh-token families (reusing a token revokes the family).
+- [x] Bearer auth on `/v1`. Cookies and CSRF stay only for `/api` and the web console.
+- [x] `/auth/email/start`, `/auth/email/verify`, `/auth/refresh`, `/auth/logout`, `GET /me`.
 - **Check:** contract tests pass, and a test shows that reusing a refresh token revokes the family.
+  - 2026-10-24: passes (`tests/contract/auth.test.ts`: every auth operation and `/me` validated against the spec; reuse revokes the family, and a retried refresh with the same key replays instead).
 
 ### 0.5 /v1 read and trade endpoints (x-phase 0 in the spec)
 - [ ] Exchanges: create, list and get; invites (create, preview, accept); ticker check; IPO with consent.

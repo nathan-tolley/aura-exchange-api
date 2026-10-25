@@ -1,7 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { config } from "../config.js";
 import { appError } from "../errors.js";
+import { LogEmailSender, type EmailSender } from "../services/email-sender.js";
+import { registerAuthRoutes } from "./auth-routes.js";
+import { registerBearerAuth } from "./bearer.js";
 import { registerIdempotency } from "./idempotency.js";
+import { registerMeRoutes } from "./me-routes.js";
 import { isoTime } from "./serialize.js";
 import { registerSystemRoutes } from "./system-routes.js";
 
@@ -14,11 +18,16 @@ export interface V1Options {
   minAppBuild: number;
   /** While in the future, every route but /health answers 503 MAINTENANCE. */
   maintenanceUntil?: Date;
+  /** Delivers sign-in codes; defaults to logging them (development). */
+  emailSender?: EmailSender;
+  /** Sign-in codes one IP may request per hour. */
+  loginCodesPerIpPerHour: number;
 }
 
 export const defaultV1Options = (): V1Options => ({
   minAppBuild: config.MIN_APP_BUILD,
-  maintenanceUntil: config.MAINTENANCE_UNTIL
+  maintenanceUntil: config.MAINTENANCE_UNTIL,
+  loginCodesPerIpPerHour: 20
 });
 
 /** The /v1 surface for the iPhone app. Its contract is openapi/v1.yaml. */
@@ -42,13 +51,20 @@ export async function registerV1(app: FastifyInstance, options: V1Options = defa
 
     v1.decorateRequest("v1User", null);
     v1.decorateRequest("membership", null);
-    // Keys belong to the signed-in user; before sign-in (the /auth routes) they share the "anon" scope.
-    registerIdempotency(v1, { scopeOf: (request) => request.v1User?.id ?? "anon" });
+    registerBearerAuth(v1);
+    // Keys belong to the signed-in user. Public routes (sign-in, refresh) always use the "anon" scope, so a retry
+    // replays even if the access token expired between attempts.
+    registerIdempotency(v1, { scopeOf: (request) => (request.routeOptions.config?.public ? "anon" : request.v1User?.id ?? "anon") });
 
     v1.setNotFoundHandler(async (request) => {
       throw appError("NOT_FOUND", { resource: "route" }, `No route for ${request.method} ${request.url}`);
     });
 
     await registerSystemRoutes(v1, options);
+    await registerAuthRoutes(v1, {
+      emailSender: options.emailSender ?? new LogEmailSender((fields, message) => v1.log.info(fields, message)),
+      loginCodesPerIpPerHour: options.loginCodesPerIpPerHour
+    });
+    await registerMeRoutes(v1);
   }, { prefix: V1_PREFIX });
 }

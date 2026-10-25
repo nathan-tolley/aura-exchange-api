@@ -303,6 +303,21 @@ Plumbing decisions that are mine to make. Game rules go to `DECISIONS.md` instea
   - `membershipGuard({ roles? })` is the preHandler for `/exchanges/{exchangeId}/…`. Unknown, malformed or foreign exchange ids all answer `403 NOT_A_MEMBER {exchangeId}`; a role mismatch answers `403 FORBIDDEN`.
   - `requireScopedResource(db, request, table, id)` is for id-addressed routes (listing, position, order, event, halt, quote). Another exchange's resource answers the same `404 NOT_FOUND {resource}` as a missing one.
   - Both read `request.v1User`, which only the bearer guard (0.4) sets, never the console cookie. Idempotency keys are now scoped by `request.v1User.id` (`anon` before sign-in).
+- 2026-10-24: **token auth (0.4).**
+  - Sign-in codes: 6 digits, stored as an HMAC (keyed from `AUTH_SECRET`) with 10 minutes to live and 5 tries. A new code supersedes the old one.
+  - Limits: 5 codes per email per hour (`429 RATE_LIMITED {retryAfterSeconds}`) and 20 per IP per hour (the route-level rate limiter, configurable). `start` always answers 204, so it never says whether an account exists.
+  - `verify` creates the account on first sign-in, with the email's local part as the display name. A wrong code is `401 LOGIN_CODE_INVALID {attemptsLeft}`; an expired, superseded or exhausted code is `401 LOGIN_CODE_EXPIRED`. The app needs a new `Idempotency-Key` for each code it submits.
+  - Access tokens: HS256 JWT from `jose`, 15 minutes, `iss=aura-exchange`, `aud=aura-app`, `typ=access`, key derived from `AUTH_SECRET`. They can't be revoked before they expire, so logout leaves at most 15 minutes.
+  - Refresh tokens: opaque `rt_…`, stored as sha256, 30 days, rotated on every use within a family. Reusing a used token revokes the whole family; logout revokes the family.
+  - Email goes through `EmailSender`. The default logs the code, which is fine in development; production needs a provider (open question 8).
+- 2026-10-24: **bearer auth on `/v1`** (`src/v1/bearer.ts`).
+  - It's required on every route not marked `config: { public: true }`; the public ones are `/health`, `/auth/email/start`, `/verify` and `/refresh`. A missing, bad or expired token is `401 AUTH_EXPIRED`. On public routes a bad token is ignored, so a refresh still works when the app attaches its stale token.
+  - Idempotency on public routes always uses the `anon` scope, so a retried refresh replays even if the access token expired between tries.
+  - `/v1` skips the cookie session lookup and the console's Origin/CSRF check.
+- 2026-10-24: `GET /me` returns `avatarUrl: null` until avatars move to object storage (Phase 1), `badges: []` and `superInjunctionsLeft: 3` (Phase 2 features).
+- Known gaps from 0.4:
+  - Console users (username + password) have no email, so they can't sign in to the app until one is linked. That needs a way to add an email from the console, or to claim an existing listing by email. It can come with invites in 0.5.
+  - A legacy ticker with digits wouldn't match the spec's `^\$[A-Z]{3,5}$`.
 - 2026-10-24: **two more existing bugs fixed** (both on the friend's `master`):
   - The season-close standings query passed one parameter as `$1::text` and compared it with a uuid. Postgres rejects that (`uuid = text`), so seasons never closed and `pilot-reset` would time out.
   - The daily `market-open` cleared every `halted_until`, including the `'infinity'` that marks a delisted pool. It now leaves delisted pools alone.

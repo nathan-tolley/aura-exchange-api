@@ -62,6 +62,8 @@ Every non-2xx response has this body:
 | --- | --- | --- | --- | --- | --- |
 | 400 | `VALIDATION` | `field`, `rule` | no | NONE | inline field error |
 | 401 | `AUTH_EXPIRED` | | no | SIGN_IN | silent refresh, then sign-in |
+| 401 | `LOGIN_CODE_INVALID` | `attemptsLeft` | no | NONE | sign-in: wrong code, try again (a new `Idempotency-Key` per attempt) |
+| 401 | `LOGIN_CODE_EXPIRED` | | no | NONE | sign-in: code expired or out of tries; request a new one |
 | 403 | `FORBIDDEN` | | no | NONE | generic "not allowed" (e.g. a moderator-only action) |
 | 403 | `NOT_A_MEMBER` | `exchangeId` | no | NONE | |
 | 403 | `SELF_TRADE` | `ticker` | no | NONE | trade button hidden on your own stock |

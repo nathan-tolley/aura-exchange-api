@@ -6,3 +6,17 @@ export function isoTime(date: Date): string {
 export function isoTimeOrNull(date: Date | null | undefined): string | null {
   return date ? isoTime(date) : null;
 }
+
+/** Tickers always go out uppercase with a $ ("$JAKE"). */
+export function formatTicker(ticker: string): string {
+  return `$${ticker.toUpperCase()}`;
+}
+
+export function serializeUser(row: { id: string; email: string | null; display_name: string | null; username: string | null; created_at: Date }) {
+  return {
+    id: row.id,
+    displayName: row.display_name ?? row.username ?? "Trader",
+    email: row.email ?? "",
+    createdAt: isoTime(row.created_at)
+  };
+}

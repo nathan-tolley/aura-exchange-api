@@ -19,7 +19,7 @@ import { registerVoteRoutes } from "./routes/vote-routes.js";
 import { registerChatGPTRoutes } from "./routes/chatgpt-routes.js";
 import { registerAuraFarmingRoutes } from "./routes/aura-farming-routes.js";
 import {registerDerivativesRoutes} from "./routes/derivatives-routes.js";
-import { defaultV1Options, registerV1, type V1Options } from "./v1/index.js";
+import { defaultV1Options, isV1Request, registerV1, type V1Options } from "./v1/index.js";
 import { forbidden, unauthorized } from "./errors.js";
 
 export interface BuildAppOptions {
@@ -51,10 +51,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(multipart, { limits: { fileSize: 2 * 1024 * 1024, files: 1 } });
 
   app.decorateRequest("auth", null);
-  app.addHook("preHandler", loadSession);
+  app.addHook("preHandler", async (request) => {
+    if (!isV1Request(request.url)) await loadSession(request);
+  });
   app.addHook("preHandler", async (request) => {
     if (request.url.startsWith("/uploads/") && !request.auth) throw unauthorized();
-    if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+    if (!isV1Request(request.url) && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
       const origin = request.headers.origin;
       if (origin && origin !== new URL(config.APP_ORIGIN).origin) throw forbidden("Request origin is not allowed");
     }
