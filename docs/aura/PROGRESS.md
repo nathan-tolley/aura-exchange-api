@@ -4,11 +4,12 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 
 ## Now
 - Step: 0.7 → deploy to Nathan's Ubuntu box (`tae.app.elicit-marketing.com`)
-- State: blocked on SSH access. The box takes keys only (password logins are off), and the auto-mode classifier won't let me try his other private keys, so Nathan installs the deploy key (`~/.ssh/aura_deploy.pub`) with his own login.
-- Next action: once `ssh -i ~/.ssh/aura_deploy -o BatchMode=yes <user>@<box> true` works, put `DEPLOY_HOST=<user>@<box>` in `deploy.local` (gitignored; the IP stays out of the repo), inspect the box (OS, arch, Docker, free ports 80/443, disk, memory, password-free sudo), then `bash scripts/deploy.sh` and `pnpm smoke --base https://tae.app.elicit-marketing.com`
+- State: deployed `947ffc6` on the box and healthy inside it (`/v1/health` OK with a fresh worker heartbeat, reachable from the other Caddy as `aura-exchange-api:8787`); not public yet. SSH works as `<user>` with the deploy key (`deploy.local` has the target). The box (Azure, Ubuntu 24.04, x86_64, 4 CPUs, 15 GB RAM, about 6 GB disk free) already runs another stack, `~/<other-stack>/deploy` (a `<user>` app, Ollama, and a Caddy on 80/443). So ours runs without its own Caddy (`compose.box.yaml`), with the API on that Caddy's network as `aura-exchange-api`.
+- Next action: only with Nathan's OK, add the `tae.app.elicit-marketing.com` site block to `~/<other-stack>/deploy/Caddyfile` (another repo, with another contributor) and reload that Caddy; then `pnpm smoke --base https://tae.app.elicit-marketing.com` once DNS resolves
 - Uncommitted work: none
 - Waiting on Nathan:
-  - Install the deploy key on the box, and say which user to log in as. Also: the DNS A record for `tae.app.elicit-marketing.com` (he's setting it up), and inbound 80/443 allowed in the cloud firewall.
+  - OK to add one site block to the <other-stack> Caddyfile and reload that Caddy?
+  - The DNS A record for `tae.app.elicit-marketing.com` (not live yet at the authoritative server on 2026-10-25).
   - DECISIONS.md open question 12: base daily volatility 2% → 1.1%, so the simulator lands near 60/25/15. The engine default stays at 2% until he agrees.
   - Email provider for sign-in codes (open question 8): not needed for a test exchange (codes go to the host's log), needed before friends sign in.
   - Spec draft.6 (named error examples): tell the app session to sync `api/openapi.yaml` again.
@@ -46,3 +47,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-25 · 0.6 · `scripts/sim/season.ts` (pure, seeded `runSeason`: events with rumors, halts, votes, closed-hours queue and earnings; casual, rumor, chase and value traders through `quoteTrade`; per-source booking) and `pnpm sim` (`--runs`, `--set`, `--sweep`, CSVs in `sim-out/`). A LORE ruling now restarts quiet decay. 172 tests green.
 - 2026-10-25 · 0.6 · Tuned: base vol 2% → 1.1% (proposed, DECISIONS.md open question 12; simulator default only, engine default stays 2%) and simulated bets of 5–20% of equity. Full seasons: 57.5 / 26.6 / 15.9 at 15 s ticks (3 seeds), 59.3 / 26.5 / 14.2 at 60 s (5 seeds); plan numbers 57.8 / 17.1 / 25.2. Sensitivity table and assumptions in NOTES.md → Price-engine tuning; 0.7 plan in NOTES.md. 173 tests green. **0.6 done.**
 - 2026-10-25 · 0.7 · Hosting decided: Nathan's own Ubuntu box at `tae.app.elicit-marketing.com` (DECISIONS.md). Dockerfile installs with a frozen lockfile; `scripts/box-init-env.sh` (secrets generated on the box), `scripts/deploy.sh` (ships HEAD over SSH with the deploy key, `docker compose up -d --build`), `pnpm smoke`. Waiting on SSH access. 173 tests green.
+- 2026-10-25 · 0.7 · Deployed `947ffc6` to the box: Postgres 18, API (migrations on start) and worker up and healthy, beside the box's existing `<other-stack>` stack, which is untouched. Our Caddy is off (`compose.box.yaml`); the API is on that stack's network as `aura-exchange-api`. 4.5 GB disk left. Public HTTPS waits on DNS and Nathan's OK to add a site block to that stack's Caddyfile.

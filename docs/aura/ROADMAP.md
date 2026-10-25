@@ -74,6 +74,7 @@ Work top to bottom. Tick a box only when its check passes and `pnpm check` is gr
 ### 0.7 Cloud
 - [x] Ask Nathan which host. 2026-10-25: his own Ubuntu box at `tae.app.elicit-marketing.com` (DECISIONS.md).
 - [ ] Deploy the API and worker containers with Postgres on the box (Docker Compose, Caddy for HTTPS), with migrations running on deploy.
+  - 2026-10-25: running and healthy on the box (`scripts/deploy.sh`, `compose.box.yaml` beside the box's existing Caddy). Public HTTPS waits on the DNS record and a site block in that Caddy.
 - **Check (Gate 0, part 2):** a test exchange runs in the cloud, and the app's dev build can point at it.
 
 ## Phase 1: the core loop
