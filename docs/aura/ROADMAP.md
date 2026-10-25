@@ -72,7 +72,8 @@ Work top to bottom. Tick a box only when its check passes and `pnpm check` is gr
   - 2026-10-25: passes with the proposed tuning: 57.5 / 26.6 / 15.9 over three full seasons at 15 s ticks (59.3 / 26.5 / 14.2 over five at 60 s). The plan's numbers give 57.8 / 17.1 / 25.2. The tuning is base vol 2% → 1.1% (DECISIONS.md open question 12; the engine default stays at 2% until Nathan agrees) and simulated bets of 5–20% of equity. NOTES.md → Price-engine tuning.
 
 ### 0.7 Cloud
-- [ ] Ask Nathan which host (Fly.io, Railway or Render). Deploy the API and worker containers with managed Postgres in US-East, with migrations running on deploy.
+- [x] Ask Nathan which host. 2026-10-25: his own Ubuntu box at `tae.app.elicit-marketing.com` (DECISIONS.md).
+- [ ] Deploy the API and worker containers with Postgres on the box (Docker Compose, Caddy for HTTPS), with migrations running on deploy.
 - **Check (Gate 0, part 2):** a test exchange runs in the cloud, and the app's dev build can point at it.
 
 ## Phase 1: the core loop

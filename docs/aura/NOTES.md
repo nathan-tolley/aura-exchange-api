@@ -257,31 +257,20 @@ Written at the end of 0.1. Each bullet is about one commit.
 
 ## Plan for 0.7 (cloud)
 
-Written at the end of 0.6. Blocked on Nathan choosing the host (open question 7) and creating the account; I can't create accounts or enter payment details. Each bullet is about one commit.
+Rewritten 2026-10-25: Nathan chose his own Ubuntu 24.04 box at `tae.app.elicit-marketing.com` over a managed host. (The first draft compared Railway, Fly.io and Render.) The host and user stay out of the repo, in a gitignored `deploy.local`.
 
-**Host.** All three run a Dockerfile, a long-running worker and managed Postgres in US-East. What separates them for us:
+**Shape.** The repo already has what a single box needs: `compose.yaml` runs Caddy (automatic Let's Encrypt HTTPS for `SITE_ADDRESS`), the API (migrations run in its `CMD` before it listens; one instance, so nothing races them), the worker (starts after the API is healthy) and Postgres 18 with a named volume. Images are built on the box, so its CPU architecture doesn't matter. Nothing is pushed to GitHub: the deploy ships `git archive HEAD` over SSH.
 
-| | Deploy without pushing to GitHub | API + worker + Postgres in one place | Notes |
-| --- | --- | --- | --- |
-| Railway | Yes (`railway up` from this folder) | Yes, one project | Pre-deploy command for migrations; usage-based billing |
-| Fly.io | Yes (`fly deploy` builds the Dockerfile) | Yes (process groups in `fly.toml`) | `release_command` for migrations; machines must not auto-stop, or the worker sleeps |
-| Render | No: deploys from a Git repo or a registry image | Yes (`render.yaml` blueprint) | Background workers are a paid instance type |
+1. **Production fixes.** The Dockerfile installs with `--frozen-lockfile` (it allowed lockfile changes).
+2. **`scripts/box-init-env.sh`** runs on the box once and writes `.env` with fresh random secrets (`POSTGRES_PASSWORD`, `SESSION_SECRET`, `SETUP_TOKEN`, `AUTH_SECRET`) from `openssl rand`, plus `NODE_ENV=production`, `SITE_ADDRESS`, `APP_ORIGIN`, `AI_PROVIDER=fake` and `MIN_APP_BUILD=1`. The secrets never leave the box and are never printed.
+3. **`scripts/deploy.sh`** (Git Bash): refuses a dirty tree, ships HEAD to `~/aura-exchange` on the box, writes `REVISION`, creates `.env` if missing, then `docker compose up -d --build`. It uses only the deploy key (`BatchMode`, so it can never prompt for a password).
+4. **`pnpm smoke --base https://tae.app.elicit-marketing.com`**: `/v1/health` is 200 and `OK` (fresh worker heartbeat), `X-App-Build: 0` gets 426, `/me` without a token gets 401, each body valid against `openapi/v1.yaml`, and the console's `/healthz` answers. HTTPS must verify.
+5. **Sign-in codes.** No email provider yet (open question 8), so codes go to the API's log: `docker compose logs app | grep -i code` on the box. Fine for a test exchange.
+6. **Check (Gate 0, part 2):** Nathan signs in from the app's dev build pointed at `https://tae.app.elicit-marketing.com/v1`, creates the test exchange and invites someone.
 
-My pick is **Railway**: it's the least setup for three services, and like Fly it deploys from this folder, so nothing waits on the fork question. Check current pricing before committing; I haven't.
+**What Nathan does (I can't):** the DNS A record; allow inbound 80 and 443 in the cloud provider's firewall or security list; install the deploy key (the box takes keys only); install Docker if it isn't there and his user has no password-free `sudo`.
 
-1. **Host-neutral production fixes.**
-   - The Dockerfile installs with `--frozen-lockfile=false`; make it frozen.
-   - Run migrations as the host's pre-deploy step instead of in the API's `CMD`, so a second API instance can't race them (the server already refuses to start with migrations pending).
-   - `DATABASE_SSL` (off by default) for managed Postgres that requires TLS.
-   - `.env.example` listing every production variable.
-2. **Host config** (`railway.json`, `fly.toml` or `render.yaml`):
-   - `api`: the Dockerfile, `node dist-api/src/server.js`, health check `/v1/health`.
-   - `worker`: the same image, `node dist-api/src/worker.js`, exactly one instance until Phase 1's advisory lock.
-   - Postgres 18, US-East; migrations `node dist-api/scripts/migrate.js` before each deploy.
-3. **Secrets, set on the host and never committed:** `AUTH_SECRET`, `SESSION_SECRET`, `SETUP_TOKEN` (generated), `NODE_ENV=production`, `AI_PROVIDER=fake`, `MIN_APP_BUILD=1`, `APP_ORIGIN` (the console URL).
-4. **Sign-in codes.** There's no email provider yet (open question 8), so codes go to the host's log. That's enough for a test exchange: Nathan reads his code from the log. A Resend or Postmark `EmailSender` comes when he picks one.
-5. **Smoke test against the deployed URL** (`pnpm smoke --base https://…`): `/v1/health` is `OK` with a fresh worker heartbeat, the version gate answers 426, `/me` answers 401, and each body validates against `openapi/v1.yaml`. Then, by hand: sign in, create the test exchange, invite.
-6. **Check (Gate 0, part 2):** the app's dev build points at the cloud URL (the app session changes its base URL) and signs in.
+**Later:** nightly `pg_dump` to a file outside the container plus a copy off the box (the friend's backup scripts are PowerShell for his home PC); an email provider; log rotation.
 
 ## Plumbing choices
 

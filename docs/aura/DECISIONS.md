@@ -27,6 +27,7 @@ What's settled, what changed since the plan, and what's still open. When this fi
 | Swift client generated from OpenAPI | **Dart client generated from OpenAPI** (recommended: `swagger_parser` with dio + json_serializable, which needs no Java) | Flutter |
 | SF Pro / New York / SF Mono | **System sans on iOS** (SF Pro automatically). **Newsreader** and **JetBrains Mono** are bundled as font assets (both OFL). | Flutter can't reach New York or SF Mono by family name, so we bundle open fonts. That way the web preview and the device match. |
 | Projects in `C:\Users\natha\Downloads\aura` | Projects in `C:\Users\natha\OneDrive\Desktop\Personal\Programming Projects\The Aura Exchange`, with the friend's repo freshly cloned there | Nathan's choice, 2026-10-24. The old Downloads copy is no longer used. |
+| A managed host (Fly.io, Railway or Render) with managed Postgres in US-East | **Nathan's own Ubuntu 24.04 box in the cloud**, at `tae.app.elicit-marketing.com`. Docker Compose runs Caddy (automatic HTTPS), the API, the worker and Postgres 18 on it, using the repo's existing `compose.yaml`. | Nathan's choice, 2026-10-25. Login is by SSH key only; a dedicated deploy key (`~/.ssh/aura_deploy` on Nathan's PC). Backups are ours to run (no managed snapshots). |
 | Design-system "SwiftUI notes" | The same rules apply, mapped to Flutter widgets (see `app/design/DESIGN.md`) | |
 
 ## Settled game rules (from planning and the design pass)
@@ -59,7 +60,7 @@ What's settled, what changed since the plan, and what's still open. When this fi
 4. **Season resets.** Do prices reset to 100 every 8 weeks (proposed)?
 5. **Analyst tone.** How savage? This sets the AI prompt and the moderation rules.
 6. **AI budget.** About how many events a day per group? This sets the model choice and cost.
-7. **Hosting.** Fly.io, Railway or Render (plan says pick one; US-East)?
+7. ~~**Hosting.** Fly.io, Railway or Render (plan says pick one; US-East)?~~ Answered 2026-10-25: Nathan's own Ubuntu box in the cloud, at `tae.app.elicit-marketing.com` (see "Changed since the plan").
 8. **Email provider** for sign-in codes (e.g. Resend or Postmark). In development, codes are printed to the server log.
 9. **Paid Apple Developer account later?** That unlocks push, Sign in with Apple, TestFlight and the App Store.
 10. **Prediction markets and options** (added 2026-10-24 by the API session). The friend's latest commit (`49a0eaf`) added pooled YES/NO prediction markets and system-issued call/put options to the web version. Neither is in the `/v1` contract; PLAN.md has options in Phase 3 and doesn't mention prediction markets. Proposed default: keep both working on `/api` for the web console, leave them out of `/v1` until you decide. Do you want either in the app, and when?

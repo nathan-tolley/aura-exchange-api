@@ -6,7 +6,7 @@ WORKDIR /app
 
 FROM base AS dependencies
 COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile=false
+RUN pnpm install --frozen-lockfile
 
 FROM dependencies AS build
 COPY . .

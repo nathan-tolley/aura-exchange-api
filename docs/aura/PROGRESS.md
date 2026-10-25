@@ -3,12 +3,12 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: 0.7 → cloud deploy
-- State: blocked on Nathan's host choice (0.6 done: Gate 0 part 1 passes with the proposed tuning)
-- Next action: when Nathan picks a host (NOTES.md → Plan for 0.7 recommends Railway) and creates the account, start with the host-neutral production fixes (frozen lockfile, migrations as a pre-deploy step, `DATABASE_SSL`, `.env.example`), then the host config
+- Step: 0.7 → deploy to Nathan's Ubuntu box (`tae.app.elicit-marketing.com`)
+- State: blocked on SSH access. The box takes keys only (password logins are off), and the auto-mode classifier won't let me try his other private keys, so Nathan installs the deploy key (`~/.ssh/aura_deploy.pub`) with his own login.
+- Next action: once `ssh -i ~/.ssh/aura_deploy -o BatchMode=yes <user>@<box> true` works, put `DEPLOY_HOST=<user>@<box>` in `deploy.local` (gitignored; the IP stays out of the repo), inspect the box (OS, arch, Docker, free ports 80/443, disk, memory, password-free sudo), then `bash scripts/deploy.sh` and `pnpm smoke --base https://tae.app.elicit-marketing.com`
 - Uncommitted work: none
 - Waiting on Nathan:
-  - Hosting (open question 7): Railway, Fly.io or Render? Recommendation and trade-offs in NOTES.md → Plan for 0.7. 0.7 can't start without it.
+  - Install the deploy key on the box, and say which user to log in as. Also: the DNS A record for `tae.app.elicit-marketing.com` (he's setting it up), and inbound 80/443 allowed in the cloud firewall.
   - DECISIONS.md open question 12: base daily volatility 2% → 1.1%, so the simulator lands near 60/25/15. The engine default stays at 2% until he agrees.
   - Email provider for sign-in codes (open question 8): not needed for a test exchange (codes go to the host's log), needed before friends sign in.
   - Spec draft.6 (named error examples): tell the app session to sync `api/openapi.yaml` again.
@@ -45,3 +45,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-25 · 0.6 · `src/engine/`: seeded RNG, m(d) and follow-on moves, `tick` / `applyNews` / `moveReserves` / quiet decay; 14 engine tests (the m(d) table, half-lives, gap range, constant product, purity, replay). 169 tests green.
 - 2026-10-25 · 0.6 · `scripts/sim/season.ts` (pure, seeded `runSeason`: events with rumors, halts, votes, closed-hours queue and earnings; casual, rumor, chase and value traders through `quoteTrade`; per-source booking) and `pnpm sim` (`--runs`, `--set`, `--sweep`, CSVs in `sim-out/`). A LORE ruling now restarts quiet decay. 172 tests green.
 - 2026-10-25 · 0.6 · Tuned: base vol 2% → 1.1% (proposed, DECISIONS.md open question 12; simulator default only, engine default stays 2%) and simulated bets of 5–20% of equity. Full seasons: 57.5 / 26.6 / 15.9 at 15 s ticks (3 seeds), 59.3 / 26.5 / 14.2 at 60 s (5 seeds); plan numbers 57.8 / 17.1 / 25.2. Sensitivity table and assumptions in NOTES.md → Price-engine tuning; 0.7 plan in NOTES.md. 173 tests green. **0.6 done.**
+- 2026-10-25 · 0.7 · Hosting decided: Nathan's own Ubuntu box at `tae.app.elicit-marketing.com` (DECISIONS.md). Dockerfile installs with a frozen lockfile; `scripts/box-init-env.sh` (secrets generated on the box), `scripts/deploy.sh` (ships HEAD over SSH with the deploy key, `docker compose up -d --build`), `pnpm smoke`. Waiting on SSH access. 173 tests green.
