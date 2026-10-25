@@ -270,6 +270,8 @@ Rewritten 2026-10-25: Nathan chose his own Ubuntu 24.04 box at `tae.app.elicit-m
 
 **What Nathan does (I can't):** the DNS A record; allow inbound 80 and 443 in the cloud provider's firewall or security list; install the deploy key (the box takes keys only); install Docker if it isn't there and his user has no password-free `sudo`.
 
+**As deployed (2026-10-25).** The box already ran Nathan's `~/<other-stack>/deploy` stack (`<user>` app on `<other-site>`, Ollama, Caddy 2.8 on 80/443). So `compose.box.yaml` keeps our Caddy off and joins the API to `deploy_default` as `aura-exchange-api`. With Nathan's OK, `~/<other-stack>/deploy/Caddyfile` got one site block for `tae.app.elicit-marketing.com` → `aura-exchange-api:8787`, then `caddy reload`; `<other-site>` answered 200 before and after. The original Caddyfile is saved as `~/aura-exchange/Caddyfile.<other-stack>.before-aura`. The change shows as a local modification in the <other-stack> repo. To undo it: copy the backup back with `cat` (the file is a single-file bind mount, so keep the inode) and reload.
+
 **Later:** nightly `pg_dump` to a file outside the container plus a copy off the box (the friend's backup scripts are PowerShell for his home PC); an email provider; log rotation.
 
 ## Plumbing choices
