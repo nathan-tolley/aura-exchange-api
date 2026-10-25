@@ -12,3 +12,4 @@ coverage/
 Thumbs.db
 *.local
 .vs/
+sim-out/

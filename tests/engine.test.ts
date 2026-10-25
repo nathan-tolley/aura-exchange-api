@@ -156,6 +156,10 @@ describe("price engine", () => {
     expect(capped.base.toNumber()).toBeCloseTo(95, 10);
     const ruled = applyNews(capped, [newsMove(3)], seededRng("ruling"), still).state;
     expect(ruled.quietBleed).toBe(0);
+    const lore = applyNews(step(threeDays, DAY), [newsMove(0)], seededRng("lore"), still);
+    expect(lore.gap).toBe(0);
+    expect(lore.state.quietSeconds).toBe(0);
+    expect(lore.state.base.toNumber()).toBeCloseTo(99.5, 10);
     expect(step(ruled, 3 * DAY).base.eq(ruled.base)).toBe(true);
     expect(step(ipo(), 3 * DAY).base.toNumber()).toBe(100);
     expect(tick(ipo(), { elapsedSeconds: 10 * DAY, tradingSeconds: 0 }, seededRng(0), { ...still, quietDecay: null }).state.base.toNumber()).toBe(100);

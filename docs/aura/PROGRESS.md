@@ -9,7 +9,7 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
   1. `src/engine/`: `rng.ts` (seeded sfc32, normal, Student-t), `news.ts` (m(d), follow-on moves), `engine.ts` (state = reserves + B as Decimal, ln H / vol boost / drift as numbers; `applyNews`, `tick` returning the move split into reversion / drift / noise, `resolveReserves`, quiet decay). Unit tests: the m(d) table, half-lives, gap range, reserves keep k, no mutation, same seed → same path.
   2. `scripts/simulate.ts` + `pnpm sim`: 8 listings, 8 weeks, default hours, Poisson events (rumor 10 min, closed-hours queue → one opening gap, news halts, follow-on votes, weekly earnings), simple trader agents through `quoteTrade`. Attribution: c_events / c_trades / c_noise per listing, reversion split by each source's deviation from F; shares of daily movement. CSVs into `sim-out/` (gitignored).
   3. Tune to 60/25/15; write the tuning and a sensitivity table into NOTES.md; tick ROADMAP.
-- Next action: step 2, `scripts/sim/season.ts` (pure, seeded `runSeason`) and `scripts/simulate.ts` (CLI + CSVs), `pnpm sim`
+- Next action: step 3, tune. Baseline with the plan numbers (seed 1, 2 weeks, 60 s ticks): daily shares 60 / 13 / 26. Sweep with `pnpm sim --weeks 4 --tick 60 --runs 3 --sweep <key>=a,b,c`; confirm the result on full 8-week, 15 s seasons; write the tuning into NOTES.md → Price-engine tuning
 - Uncommitted work: none
 - Waiting on Nathan:
   - Spec draft.6 (named error examples): tell the app session to sync `api/openapi.yaml` again.
@@ -44,3 +44,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-24 · 0.5 · Phase-0 coverage test and the Prism-parity shape check; spec draft.5. 154 tests green. **0.5 done.**
 - 2026-10-25 · contract request #1 · Named error examples on `E400`…`E503`, one per code (spec draft.6); a contract test keeps them equal to `errorCodes` and API-CONTRACT.md's params; checked against a real Prism mock. Added open question 11 to "Waiting on Nathan". 155 tests green.
 - 2026-10-25 · 0.6 · `src/engine/`: seeded RNG, m(d) and follow-on moves, `tick` / `applyNews` / `moveReserves` / quiet decay; 14 engine tests (the m(d) table, half-lives, gap range, constant product, purity, replay). 169 tests green.
+- 2026-10-25 · 0.6 · `scripts/sim/season.ts` (pure, seeded `runSeason`: events with rumors, halts, votes, closed-hours queue and earnings; casual, rumor, chase and value traders through `quoteTrade`; per-source booking) and `pnpm sim` (`--runs`, `--set`, `--sweep`, CSVs in `sim-out/`). A LORE ruling now restarts quiet decay. 172 tests green.

@@ -160,7 +160,7 @@ export function tick(state: ListingState, input: TickInput, rng: Rng, params: En
 /**
  * Final rulings hit the listing. `moves` are fair-value moves as fractions: newsMove(d) for a ruling, followOnMove()
  * for a vote or appeal change. Several rulings queued while the market was closed are passed together and land as
- * one opening gap.
+ * one opening gap. A ruling with no move (LORE) still restarts the quiet-decay clock.
  *
  * F moves the whole combined move at once, split in log terms between B and the hype. The price gaps a random
  * 40–120% of it now and drifts the rest in over 45 minutes; volatility spikes up to 3× for a ±30-sized move.
@@ -168,7 +168,7 @@ export function tick(state: ListingState, input: TickInput, rng: Rng, params: En
  */
 export function applyNews(state: ListingState, moves: number[], rng: Rng, params: EngineParams = DEFAULT_ENGINE_PARAMS): { state: ListingState; gap: number; fairMove: number } {
   const fairMove = moves.reduce((sum, move) => sum + Math.log1p(move), 0);
-  if (fairMove === 0) return { state, gap: 0, fairMove };
+  if (fairMove === 0) return { state: { ...state, quietSeconds: 0, quietBleed: 0 }, gap: 0, fairMove };
   const baseMove = fairMove * params.baseShare;
   const gap = uniform(rng, params.gapMin, params.gapMax) * fairMove;
   const size = Math.abs(impactOfMove(Math.expm1(fairMove))) / MAX_IMPACT;
