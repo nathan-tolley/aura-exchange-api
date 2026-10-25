@@ -35,8 +35,14 @@ Work top to bottom. Tick a box only when its check passes and `pnpm check` is gr
   - Add `exchange_id` to every game table.
   - Backfill the existing data as one exchange ("Default").
 - [x] Every query and service is scoped by exchange; there is a membership guard.
-- [ ] `minListingsToOpen` (default 3): trading is disabled until it's reached (`tradingEnabled: false` on the market).
+- [x] `minListingsToOpen` (default 3): trading is disabled until it's reached (`tradingEnabled: false` on the market).
+  - 2026-10-24: stored per exchange; `tradingState()` computes `tradingEnabled`. The `/v1` market payload and quote/trade refusals that use it arrive with those endpoints in 0.5. The legacy `/api` isn't gated.
 - **Check:** a test with two exchanges proves that no data crosses between them.
+  - 2026-10-24: passes.
+    - `tests/db/isolation.test.ts`: every season- or listing-referencing table has `exchange_id` and its trigger; no row anywhere disagrees with its parents; cross-exchange writes are refused.
+    - `tests/legacy/api-smoke.test.ts`: the console shows only the Default exchange, even for someone listed on both, and refuses another exchange's ids with 404. A deliberately removed filter makes it fail.
+    - `tests/db/schedulers.test.ts`: the jobs per exchange.
+    - `tests/contract/membership.test.ts`: `/v1` guard.
 
 ### 0.4 Token auth
 - [ ] Email one-time codes: a `login_codes` table with hashed codes, a 10-minute expiry and 5 attempts.

@@ -3,9 +3,9 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: 0.3 → finish the isolation check: legacy `/api` against a second exchange
-- State: in progress (DB-wide isolation audit done and green)
-- Next action: extend `tests/legacy/api-smoke.test.ts` with a final describe: create exchange X (owner also listed there, plus a member only in X, a feed item, glossary entry, prediction market, notification), then assert `/api` market/feed/leaderboards/roster/session/glossary/predictions/notifications show only Default data, and quote/limit/history/invite/delist/reset-code/aura-event/bet with X's ids → 404/403. Then tick 0.3's `minListingsToOpen` and Check boxes and start 0.4
+- Step: 0.4 → token auth: migration `015_token_auth.sql`
+- State: not started (0.3 done)
+- Next action: follow NOTES.md → Plan for 0.4: migration 015 (`users.email`, `users.display_name`, nullable `username`/`password_hash`, `login_codes`, `refresh_tokens`), then `/auth/email/start` + `/verify` (dev: log the code), `/auth/refresh` with family revocation on reuse, `/auth/logout`, the bearer guard setting `request.v1User` (and skipping the cookie Origin check on `/v1`), `GET /me`
 - Uncommitted work: none
 - Waiting on Nathan:
   - Node 24 on the host? pnpm 11.25.0 needs Node ≥ 22.13; the host has 20.20.0. Checks run in a `node:24` container meanwhile (NOTES.md → Checks). Ask before changing the global Node.
@@ -27,3 +27,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-24 · 0.3 · Worker per exchange (`src/jobs/schedulers.ts`, migration 014 for run-once keys), failures isolated per exchange, season-close query fixed. 81 tests green.
 - 2026-10-24 · 0.3 · `/v1` membership guard (403 NOT_A_MEMBER, 404 for foreign resources), idempotency scoped per user. 88 tests green.
 - 2026-10-24 · 0.3 · DB-wide isolation audit (`tests/db/isolation.test.ts`): every season/listing-referencing table has `exchange_id` + trigger, no cross-exchange rows, cross-exchange writes refused. 92 tests green.
+- 2026-10-24 · 0.3 · Console-side isolation test (a second exchange, owner listed on both): `/api` shows only Default data and 404s foreign ids; mutation-checked. 94 tests green. **0.3 done.**
