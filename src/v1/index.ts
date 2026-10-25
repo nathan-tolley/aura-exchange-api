@@ -4,6 +4,7 @@ import { appError } from "../errors.js";
 import { LogEmailSender, type EmailSender } from "../services/email-sender.js";
 import { registerAuthRoutes } from "./auth-routes.js";
 import { registerBearerAuth } from "./bearer.js";
+import { registerExchangeRoutes } from "./exchange-routes.js";
 import { registerIdempotency } from "./idempotency.js";
 import { registerMeRoutes } from "./me-routes.js";
 import { isoTime } from "./serialize.js";
@@ -22,12 +23,15 @@ export interface V1Options {
   emailSender?: EmailSender;
   /** Sign-in codes one IP may request per hour. */
   loginCodesPerIpPerHour: number;
+  /** The clock for market sessions (tests pin it). */
+  now: () => Date;
 }
 
 export const defaultV1Options = (): V1Options => ({
   minAppBuild: config.MIN_APP_BUILD,
   maintenanceUntil: config.MAINTENANCE_UNTIL,
-  loginCodesPerIpPerHour: 20
+  loginCodesPerIpPerHour: 20,
+  now: () => new Date()
 });
 
 /** The /v1 surface for the iPhone app. Its contract is openapi/v1.yaml. */
@@ -66,5 +70,6 @@ export async function registerV1(app: FastifyInstance, options: V1Options = defa
       loginCodesPerIpPerHour: options.loginCodesPerIpPerHour
     });
     await registerMeRoutes(v1);
+    await registerExchangeRoutes(v1);
   }, { prefix: V1_PREFIX });
 }
