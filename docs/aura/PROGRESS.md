@@ -3,9 +3,9 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: 0.5 → invites, ticker check, IPO
+- Step: 0.5 → market and listing reads with freshness
 - State: in progress
-- Next action: make `invites.person_stock_id` nullable for exchange invites (migration 016); `POST /exchanges/{id}/invites` (multi-use, 7 days, `INVITE_URL_BASE`), `GET /invites/{code}` (VALID/EXPIRED/FULL), `POST /invites/{code}/accept` (membership + starting cash once); `GET /tickers/check`; `POST /exchanges/{id}/listing` (consent, 4,000/400,000 pool, IPO tick and feed). New codes INVITE_EXPIRED, EXCHANGE_FULL, TICKER_TAKEN (spec draft.5)
+- Next action: `GET /exchanges/{id}/market` (ListingSummary rows with sparkline, badges, myPosition; AURA index; `tradingEnabled`; freshness), `GET /listings/{id}` (ListingDetail: day/season high-low, volume, short interest), `GET /listings/{id}/candles` (5m/1h/1d buckets from ticks + trade volume; markers empty until events)
 - Uncommitted work: none
 - Waiting on Nathan:
   - Node 24 on the host? pnpm 11.25.0 needs Node ≥ 22.13; the host has 20.20.0. Checks run in a `node:24` container meanwhile (NOTES.md → Checks). Ask before changing the global Node.
@@ -31,3 +31,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-24 · 0.4 · Migration 015 (email users, `login_codes`, `refresh_tokens`), `AUTH_SECRET`, login-code / token / email-sender services. 94 tests green.
 - 2026-10-24 · 0.4 · Email-code sign-in, rotating refresh families, bearer guard, `GET /me`; spec draft.4 (`LOGIN_CODE_INVALID`, `LOGIN_CODE_EXPIRED`). 112 tests green. **0.4 done.**
 - 2026-10-24 · 0.5 · Market hours per exchange (`src/core/market-hours.ts`), `POST/GET /exchanges`, `GET /exchanges/{id}`, shared views. 122 tests green.
+- 2026-10-24 · 0.5 · Invites (create, preview, accept), ticker check, IPO at 4,000/400,000; migration 016; spec draft.5 (5 new codes); DECISIONS open question 11 (member cap 20). 130 tests green.

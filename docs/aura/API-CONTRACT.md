@@ -72,10 +72,15 @@ Every non-2xx response has this body:
 | 409 | `QUOTE_STALE` | `oldPrice`, `newPrice`, `changePct` | yes | REQUOTE | W06 requote |
 | 409 | `IDEMPOTENCY_MISMATCH` | | no | NONE | |
 | 409 | `IDEMPOTENCY_IN_PROGRESS` | | yes | RETRY | the first request with this key is still running; retry shortly with the same key |
+| 409 | `INVITE_EXPIRED` | | no | NONE | S02 invite expired |
+| 409 | `EXCHANGE_FULL` | `maxMembers` | no | NONE | S02 exchange full |
+| 409 | `TICKER_TAKEN` | `ticker` | no | NONE | S03 ticker taken (check `/tickers/check` first) |
+| 409 | `TRADING_NOT_OPEN` | `listedCount`, `minListingsToOpen` | no | WAIT | IPO day: trading opens once enough friends are listed |
 | 409 | `LISTING_HALTED` | `haltId`, `resumesAt` | no | WAIT | W10 halted |
 | 409 | `MARKET_CLOSED` | `opensAt`, `queuedEvents` | no | WAIT | W09 closed |
 | 409 | `ORDER_TYPE_NOT_ALLOWED` | `marketState` (limit orders only in PRE/AFTER) | no | NONE | trade sheet |
 | 422 | `INSUFFICIENT_CASH` | `needed`, `available`, `shortBy`, `maxQuantity` | no | REDUCE_QUANTITY | W05 rejected |
+| 422 | `INSUFFICIENT_SHARES` | `available` | no | REDUCE_QUANTITY | selling or covering more than you hold |
 | 422 | `ORDER_TOO_LARGE` | `maxQuantity` (10% of pool) | no | REDUCE_QUANTITY | W05 variant |
 | 422 | `SHORT_CAP` | `maxQuantity`, `capPct` | no | REDUCE_QUANTITY | W05 variant |
 | 422 | `OPPOSITE_POSITION` | `positionId` | no | NONE | "Close your short first" |

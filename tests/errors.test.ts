@@ -33,7 +33,9 @@ describe("contract errors", () => {
     expect(toContractError(forbidden(), context)).toMatchObject({ code: "FORBIDDEN", statusCode: 403 });
     expect(toContractError(notFound("Quote not found"), context)).toMatchObject({ code: "NOT_FOUND", statusCode: 404 });
     expect(toContractError(badRequest("You do not own enough shares", "INSUFFICIENT_SHARES"), context))
-      .toMatchObject({ code: "VALIDATION", params: { field: "body", rule: "insufficient_shares" } });
+      .toMatchObject({ code: "INSUFFICIENT_SHARES", statusCode: 422 });
+    expect(toContractError(badRequest("Some shares are reserved", "SHARES_RESERVED"), context))
+      .toMatchObject({ code: "VALIDATION", params: { field: "body", rule: "shares_reserved" } });
   });
 
   it("keeps the contract's status even if a contract code was thrown with another", () => {

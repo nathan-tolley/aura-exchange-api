@@ -123,7 +123,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const result = await withTransaction(async (client) => {
       const invite = await maybeOne<{ id: string; person_stock_id: string }>(client,
         `SELECT id, person_stock_id FROM invites
-          WHERE code_hash = $1 AND used_at IS NULL AND expires_at > now()
+          WHERE code_hash = $1 AND person_stock_id IS NOT NULL AND used_at IS NULL AND expires_at > now()
           FOR UPDATE`, [hashToken(input.claimCode.trim().toUpperCase())]
       );
       if (!invite) throw badRequest("Claim code is invalid or expired", "INVALID_CLAIM_CODE");

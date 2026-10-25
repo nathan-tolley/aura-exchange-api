@@ -2,7 +2,7 @@
 openapi: 3.1.0
 info:
   title: Aura Exchange API
-  version: 1.0.0-draft.4
+  version: 1.0.0-draft.5
   description: The v1 contract between the iPhone app and the server. Rules that apply everywhere (money as strings, freshness, errors, statuses,
     realtime, idempotency) are in API-CONTRACT.md. Every operation is tagged x-phase.
 servers:
@@ -2288,10 +2288,15 @@ components:
       - QUOTE_STALE
       - IDEMPOTENCY_MISMATCH
       - IDEMPOTENCY_IN_PROGRESS
+      - INVITE_EXPIRED
+      - EXCHANGE_FULL
+      - TICKER_TAKEN
+      - TRADING_NOT_OPEN
       - LISTING_HALTED
       - MARKET_CLOSED
       - ORDER_TYPE_NOT_ALLOWED
       - INSUFFICIENT_CASH
+      - INSUFFICIENT_SHARES
       - ORDER_TOO_LARGE
       - SHORT_CAP
       - OPPOSITE_POSITION
