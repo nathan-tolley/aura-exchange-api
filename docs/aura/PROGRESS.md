@@ -3,9 +3,9 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: 0.4 → token auth: migration `015_token_auth.sql`
-- State: not started (0.3 done)
-- Next action: follow NOTES.md → Plan for 0.4: migration 015 (`users.email`, `users.display_name`, nullable `username`/`password_hash`, `login_codes`, `refresh_tokens`), then `/auth/email/start` + `/verify` (dev: log the code), `/auth/refresh` with family revocation on reuse, `/auth/logout`, the bearer guard setting `request.v1User` (and skipping the cookie Origin check on `/v1`), `GET /me`
+- Step: 0.4 → `/auth/email/start` + `/auth/email/verify`, two new error codes
+- State: in progress
+- Next action: `src/v1/auth-routes.ts` (public routes: start → 204, per-email 5/h and per-IP limits; verify → TokenPair, `LOGIN_CODE_INVALID {attemptsLeft}` / `LOGIN_CODE_EXPIRED` as 401), add both codes to `src/errors.ts`, the spec (draft.4), API-CONTRACT.md and CHANGES.md; `src/v1/bearer.ts` (onRequest: parse Bearer, require it unless the route is `config.public`)
 - Uncommitted work: none
 - Waiting on Nathan:
   - Node 24 on the host? pnpm 11.25.0 needs Node ≥ 22.13; the host has 20.20.0. Checks run in a `node:24` container meanwhile (NOTES.md → Checks). Ask before changing the global Node.
@@ -28,3 +28,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-24 · 0.3 · `/v1` membership guard (403 NOT_A_MEMBER, 404 for foreign resources), idempotency scoped per user. 88 tests green.
 - 2026-10-24 · 0.3 · DB-wide isolation audit (`tests/db/isolation.test.ts`): every season/listing-referencing table has `exchange_id` + trigger, no cross-exchange rows, cross-exchange writes refused. 92 tests green.
 - 2026-10-24 · 0.3 · Console-side isolation test (a second exchange, owner listed on both): `/api` shows only Default data and 404s foreign ids; mutation-checked. 94 tests green. **0.3 done.**
+- 2026-10-24 · 0.4 · Migration 015 (email users, `login_codes`, `refresh_tokens`), `AUTH_SECRET`, login-code / token / email-sender services. 94 tests green.
