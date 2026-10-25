@@ -1,0 +1,23 @@
+# For a box where another stack's Caddy already owns ports 80 and 443 (Nathan's cloud box).
+# Use with compose.yaml: COMPOSE_FILE=compose.yaml:compose.box.yaml
+# - Our own Caddy doesn't start (it's behind a profile nobody enables).
+# - The API also joins that Caddy's network as "aura-exchange-api", so a site block there can proxy to it:
+#     tae.app.elicit-marketing.com {
+#       encode zstd gzip
+#       reverse_proxy aura-exchange-api:8787
+#     }
+# - Nothing is published on the host.
+services:
+  caddy:
+    profiles: ["own-caddy"]
+  app:
+    ports: !reset []
+    networks:
+      default: {}
+      edge:
+        aliases: [aura-exchange-api]
+
+networks:
+  edge:
+    external: true
+    name: ${EDGE_NETWORK:-deploy_default}
