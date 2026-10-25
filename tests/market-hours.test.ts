@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_HOURS, isValidTimeZone, marketSession, validateHours } from "../src/core/market-hours.js";
+import { DEFAULT_HOURS, isValidTimeZone, marketSession, nextWeeklyPayoutAt, validateHours, weeklyPayoutDue } from "../src/core/market-hours.js";
 
 const NY = "America/New_York";
 const at = (iso: string) => marketSession(DEFAULT_HOURS, NY, new Date(iso));
@@ -36,5 +36,31 @@ describe("market sessions (default hours, New York, EDT = UTC−4)", () => {
     expect(validateHours({ preOpen: "07:00", open: "09:00", close: "22:00", afterClose: "07:00" })).toBe(true);
     expect(isValidTimeZone("America/New_York")).toBe(true);
     expect(isValidTimeZone("Mars/Olympus_Mons")).toBe(false);
+  });
+});
+
+describe("the weekly payout (allowance and dividends, Mondays from 9 am local)", () => {
+  const next = (timeZone: string, iso: string) => nextWeeklyPayoutAt(timeZone, new Date(iso)).toISOString();
+
+  it("is next Monday at 9 am from the weekend", () => {
+    expect(next(NY, "2026-10-24T16:00:00Z")).toBe("2026-10-26T13:00:00.000Z");
+  });
+
+  it("is today on a Monday morning, and next week from 9 am on", () => {
+    expect(next(NY, "2026-10-26T12:59:00Z")).toBe("2026-10-26T13:00:00.000Z");
+    // The clocks go back on 1 November, so 9 am the next Monday is 14:00 UTC.
+    expect(next(NY, "2026-10-26T13:00:00Z")).toBe("2026-11-02T14:00:00.000Z");
+  });
+
+  it("uses each exchange's own timezone", () => {
+    expect(next("Europe/London", "2026-10-24T16:00:00Z")).toBe("2026-10-26T09:00:00.000Z");
+    expect(next("Australia/Sydney", "2026-10-24T16:00:00Z")).toBe("2026-10-25T22:00:00.000Z");
+  });
+
+  it("is due from 9 am to midnight on Mondays only, matching the next payout", () => {
+    expect(weeklyPayoutDue(NY, new Date("2026-10-26T12:59:00Z"))).toBe(false);
+    expect(weeklyPayoutDue(NY, new Date("2026-10-26T13:00:00Z"))).toBe(true);
+    expect(weeklyPayoutDue(NY, new Date("2026-10-27T03:59:00Z"))).toBe(true);
+    expect(weeklyPayoutDue(NY, new Date("2026-10-27T04:00:00Z"))).toBe(false);
   });
 });

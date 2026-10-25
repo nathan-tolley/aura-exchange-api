@@ -3,6 +3,7 @@ import { Decimal } from "decimal.js";
 import { pool, one, withTransaction } from "../db.js";
 import { accounts, postLedgerTransaction } from "../core/ledger.js";
 import { auraComposite, marketIndex, quoteTrade } from "../core/market.js";
+import { weeklyPayoutDue } from "../core/market-hours.js";
 import { resolveExpiredAuraFarming } from "../services/aura-farming-service.js";
 import { processOpenLimitOrders } from "../services/limit-order-service.js";
 import { terminateOpenLimitOrders } from "../services/limit-order-lifecycle.js";
@@ -356,7 +357,7 @@ export async function runExchangeSchedulers(exchange: ExchangeClock, now = new D
   await runOnce(key("indices", fiveMinuteKey), () => snapshotIndices(exchange.id));
   await runOnce(key("season-check", `${dateKey}:${parts.hour}`), () => closeExpiredSeason(exchange.id));
   if (!(await activeSeason(pool, exchange.id))) return;
-  if (parts.weekday === "Mon" && Number(parts.hour) >= 9) {
+  if (weeklyPayoutDue(exchange.timezone, now)) {
     await runOnce(key("allowance", dateKey), () => grantAllowance(exchange.id, dateKey));
     await runOnce(key("dividends", dateKey), () => settleDividends(exchange.id, dateKey));
   }

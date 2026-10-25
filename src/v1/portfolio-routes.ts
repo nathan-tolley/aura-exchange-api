@@ -1,6 +1,7 @@
 import { Decimal } from "decimal.js";
 import type { FastifyInstance } from "fastify";
 import { accounts } from "../core/ledger.js";
+import { nextWeeklyPayoutAt } from "../core/market-hours.js";
 import { one, pool, withTransaction } from "../db.js";
 import { appError } from "../errors.js";
 import { activeSeason, loadExchange } from "../services/exchange-service.js";
@@ -53,8 +54,9 @@ export async function registerPortfolioRoutes(v1: FastifyInstance, options: { no
     const contributed = new Decimal(figures.contributed);
     const seasonChange = netWorth.minus(contributed);
     const dayChange = new Decimal(figures.day_change);
+    const now = options.now();
     return {
-      ...freshness(exchange, options.now()),
+      ...freshness(exchange, now),
       exchangeId: exchange.id,
       cash: money(totals.cash),
       reservedCash: money(reserved),
@@ -77,7 +79,8 @@ export async function registerPortfolioRoutes(v1: FastifyInstance, options: { no
         fillPrice: null,
         rejectCode: null
       })),
-      canDeclareBankruptcy: totals.equity.lt(BANKRUPTCY_EQUITY)
+      canDeclareBankruptcy: totals.equity.lt(BANKRUPTCY_EQUITY),
+      nextStimulusAt: isoTime(nextWeeklyPayoutAt(exchange.timezone, now))
     };
   });
 }

@@ -2,7 +2,7 @@
 openapi: 3.1.0
 info:
   title: Aura Exchange API
-  version: 1.0.0-draft.6
+  version: 1.0.0-draft.7
   description: The v1 contract between the iPhone app and the server. Rules that apply everywhere (money as strings, freshness, errors, statuses,
     realtime, idempotency) are in API-CONTRACT.md. Every operation is tagged x-phase.
 servers:
@@ -2422,6 +2422,12 @@ components:
                     available: '2264.50'
                     shortBy: '229.91'
                     maxQuantity: '18'
+                    nextStimulusAt: '2026-10-26T13:00:00Z'
+                    price: '124.10'
+                    gross: '2482.00'
+                    feeRate: '0.50'
+                    fee: '12.41'
+                    total: '2494.41'
                   retryable: false
                   action: REDUCE_QUANTITY
             INSUFFICIENT_SHARES:
@@ -2453,6 +2459,11 @@ components:
                   params:
                     maxQuantity: '15.2'
                     capPct: '20.00'
+                    price: '123.80'
+                    gross: '2476.00'
+                    feeRate: '0.50'
+                    fee: '12.38'
+                    total: '2463.62'
                   retryable: false
                   action: REDUCE_QUANTITY
             OPPOSITE_POSITION:
@@ -2719,10 +2730,10 @@ components:
       properties:
         accessToken:
           type: string
-          example: eyJhbGciOi…
+          example: eyJhbGciOiJIUzI1NiJ9.e30.c2lnbmF0dXJl
         refreshToken:
           type: string
-          example: rt_9d8c…
+          example: rt_9d8c4e2a
         expiresIn:
           type: integer
           example: 900
@@ -2803,6 +2814,10 @@ components:
         superInjunctionsLeft:
           type: integer
           example: 3
+        superInjunctionsPerSeason:
+          type: integer
+          description: How many a season allows ("2 of 3 left")
+          example: 3
       required:
       - id
       - exchangeId
@@ -2812,6 +2827,7 @@ components:
       - joinedAt
       - badges
       - superInjunctionsLeft
+      - superInjunctionsPerSeason
     Me:
       type: object
       properties:
@@ -3764,6 +3780,11 @@ components:
           - 'null'
           format: date-time
           example: '2026-10-24T13:21:00Z'
+        liquidation:
+          oneOf:
+          - $ref: '#/components/schemas/Liquidation'
+          - type: 'null'
+          description: Set when status is LIQUIDATED
       required:
       - id
       - listing
@@ -3778,6 +3799,78 @@ components:
       - short
       - openedAt
       - closedAt
+      - liquidation
+    Liquidation:
+      type: object
+      description: How a liquidated short settled (W08). quantity on the Position is what was bought back. returned = collateral − cost −
+        fee, never below zero (a shortfall is written off, not charged).
+      properties:
+        at:
+          type: string
+          format: date-time
+          example: '2026-10-24T13:21:00Z'
+        triggerPrice:
+          type: string
+          pattern: ^\d+\.\d{2}$
+          description: The price that crossed the liquidation price
+          example: '116.80'
+        maintenanceRatioPct:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+          description: The collateral ratio it fell under
+          example: '125.00'
+        collateral:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+          description: What was held against the short
+          example: '8745.75'
+        price:
+          type: string
+          pattern: ^\d+\.\d{2}$
+          description: Average buy-back price
+          example: '117.95'
+        cost:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+          description: The buy-back before the fee
+          example: '7077.00'
+        feeRate:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+          description: Percent units, decimal string, 2 dp (−12.19 = −12.19%)
+          example: '0.50'
+        fee:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+          description: Aura Bucks, decimal string, 2 dp
+          example: '35.39'
+        returned:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+          description: What came back to your cash
+          example: '1633.36'
+        realizedPnl:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+          description: The whole short's realized P&L, after fees
+          example: '-1291.64'
+        realizedPnlPct:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+          description: Against the entry value (avgPrice × quantity)
+          example: '-22.08'
+      required:
+      - at
+      - triggerPrice
+      - maintenanceRatioPct
+      - collateral
+      - price
+      - cost
+      - feeRate
+      - fee
+      - returned
+      - realizedPnl
+      - realizedPnlPct
     Trade:
       type: object
       properties:
@@ -4002,6 +4095,11 @@ components:
           canDeclareBankruptcy:
             type: boolean
             description: Net worth under A$100.00 (Phase 2)
+          nextStimulusAt:
+            type: string
+            format: date-time
+            description: When the next weekly allowance (the "stimulus check") lands
+            example: '2026-10-26T13:00:00Z'
         required:
         - exchangeId
         - cash
@@ -4014,6 +4112,7 @@ components:
         - positions
         - openOrders
         - canDeclareBankruptcy
+        - nextStimulusAt
     Category:
       type: string
       enum:
@@ -4364,6 +4463,11 @@ components:
           required:
           - status
           - deadline
+        denialPenaltyPct:
+          type: string
+          pattern: ^-?\d+\.\d{2}$
+          description: How much bigger a confirmed loss gets when the subject denied it (W01). Ruling.multipliers.denial is what was applied.
+          example: '20.00'
       required:
       - id
       - exchangeId
@@ -4387,6 +4491,7 @@ components:
       - halt
       - votes
       - appeal
+      - denialPenaltyPct
     EventCreate:
       type: object
       properties:

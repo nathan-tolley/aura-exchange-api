@@ -3,11 +3,13 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: app contract requests #2–#9 (between Phase 0 and Phase 1). Phase 0 is done; the API is live at `https://tae.app.elicit-marketing.com/v1` (box `947ffc6`, details in NOTES.md → Plan for 0.7).
-- State: in progress. Resumed 2026-10-25 by a fresh session: tree clean at `571bcc6`, `pnpm check` green (173 tests).
-- Next action: decide each of the app's requests #2–#9 (`aura-exchange-app/docs/aura/CONTRACT-REQUESTS.md`, read only), write the answers to `docs/aura/CONTRACT-RESPONSES.md`, then implement the accepted ones as spec draft.7.
+- Step: app contract request #10 (CORS for the app's Chrome preview), then Phase 1. Phase 0 is done; the API is live at `https://tae.app.elicit-marketing.com/v1` (box `947ffc6`, details in NOTES.md → Plan for 0.7).
+- State: requests #2–#9 done as spec `1.0.0-draft.7` (answers in `docs/aura/CONTRACT-RESPONSES.md`). #10 arrived while that was in progress.
+- Next action: answer #10 in CONTRACT-RESPONSES.md and add a `CORS_ORIGINS` allow-list on `/v1` (no shape change). Then Phase 1 → engine tick.
 - Uncommitted work: none
 - Waiting on Nathan:
+  - **Spec draft.7: tell the app session to sync** `api/openapi.yaml` and API-CONTRACT.md (one rename for it: `feeRatePct` → `feeRate` in the liquidation model).
+  - Redeploying the box so the live server serves draft.7 needs his OK (the box runs `947ffc6`).
   - **The fork.** `origin/aura-v1` exists on `karkys/Aura-Exchange`: `192fa15` was pushed from this PC on 2026-10-25 at 11:45, and no transcript shows who approved it. Is the fork OK with `karkys` now? Until he answers: no more pushes, and no redeploy to the box without his OK. Local `aura-v1` is ahead of `origin/aura-v1`.
   - Sign in from the app's dev build against the live URL (Gate 0, part 2).
   - DECISIONS.md open question 12: base daily volatility 2% → 1.1%, so the simulator lands near 60/25/15. The engine default stays at 2% until he agrees.
@@ -49,3 +51,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-25 · 0.7 · With Nathan's OK: site block for `tae.app.elicit-marketing.com` in the box's <other-stack> Caddyfile, validated and reloaded; `<other-site>` 200 before and after. Certificate waits on DNS.
 - 2026-10-25 · 0.7 · DNS live; Caddy got the certificate; `pnpm smoke --base https://tae.app.elicit-marketing.com` passes (health OK with fresh worker heartbeat, 426 gate, 401 on `/me`, `/healthz` 200). Deploy box ticked; Gate 0 part 2 waits on Nathan signing in from the app's dev build.
 - 2026-10-25 · resume · Fresh session: tree clean at `571bcc6`, `pnpm check` green (173 tests). "Waiting on Nathan": dropped the draft.6 sync (the app synced it); the fork question now records that `origin/aura-v1` (`192fa15`) was pushed with no recorded approval, so no more pushes or redeploys until he answers.
+- 2026-10-25 · contract requests #2–#9 · Spec draft.7, answers in `docs/aura/CONTRACT-RESPONSES.md`. Served now: `nextStimulusAt` (Portfolio and `INSUFFICIENT_CASH`), the receipt params on `INSUFFICIENT_CASH`/`SHORT_CAP`, `Membership.superInjunctionsPerSeason`, ASCII token examples. In the spec for Phase 1: `Position.liquidation`, `Event.denialPenaltyPct`; `changeAbs` and a 30 s heartbeat on `ticks` (API-CONTRACT.md). Deferred to Phase 2: #8, `ratingChange`, `SecCase`. One weekly-payout schedule shared by the worker and `nextStimulusAt`. Checked in a real Prism mock. 177 tests green.

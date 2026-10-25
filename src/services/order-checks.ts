@@ -1,5 +1,5 @@
 import { Decimal } from "decimal.js";
-import { money, shares } from "../core/format.js";
+import { money, percentOfRatio, shares } from "../core/format.js";
 import { quoteTrade, type MarketQuote, type MarketState as Reserves } from "../core/market.js";
 import { appError, type ErrorCode, type ErrorParams } from "../errors.js";
 import type { TradeSide } from "../types.js";
@@ -22,6 +22,8 @@ export interface OrderContext {
   /** Shares already promised to open sell limit orders. */
   reservedSellShares: Decimal;
   totals: PortfolioTotals;
+  /** When the next allowance lands (ISO 8601), so a cash shortfall can say "wait for Monday's stimulus check". */
+  nextStimulusAt: string;
 }
 
 interface Failure {
@@ -39,10 +41,25 @@ const held = (position: PositionRow | null) => ({
   escrow: new Decimal(position?.short_proceeds ?? 0).plus(position?.short_collateral ?? 0)
 });
 
-const shortfall = (needed: Decimal, available: Decimal): Failure => ({
+/** What the refused order would have cost, named and formatted as on Quote, so the rejection can show its receipt (W05). */
+const receipt = (ctx: OrderContext, quote: MarketQuote): ErrorParams => ({
+  price: money(quote.executionPrice),
+  gross: money(quote.grossAmount),
+  feeRate: percentOfRatio(ctx.feeRate),
+  fee: money(quote.feeAmount),
+  total: money(quote.netAmount)
+});
+
+const shortfall = (ctx: OrderContext, quote: MarketQuote, needed: Decimal): Failure => ({
   code: "INSUFFICIENT_CASH",
-  params: { needed: money(needed), available: money(available), shortBy: money(needed.minus(available)) },
-  message: `You need A$${money(needed.minus(available))} more`,
+  params: {
+    needed: money(needed),
+    available: money(ctx.cash),
+    shortBy: money(needed.minus(ctx.cash)),
+    nextStimulusAt: ctx.nextStimulusAt,
+    ...receipt(ctx, quote)
+  },
+  message: `You need A$${money(needed.minus(ctx.cash))} more`,
   reducible: true
 });
 
@@ -55,26 +72,26 @@ function evaluate(ctx: OrderContext, quote: MarketQuote): Failure | null {
   const positionId = ctx.position?.id ?? "";
   if (ctx.side === "BUY") {
     if (position.short.gt(0)) return { code: "OPPOSITE_POSITION", params: { positionId }, message: "Cover your short before buying", reducible: false };
-    if (ctx.cash.lt(net)) return shortfall(net, ctx.cash);
+    if (ctx.cash.lt(net)) return shortfall(ctx, quote, net);
   } else if (ctx.side === "SELL") {
     const available = Decimal.max(zero, position.long.minus(ctx.reservedSellShares));
     if (available.lt(quantity)) return { code: "INSUFFICIENT_SHARES", params: { available: shares(available) }, message: "You don't have that many shares to sell", reducible: true };
   } else if (ctx.side === "SHORT") {
     if (position.long.gt(0)) return { code: "OPPOSITE_POSITION", params: { positionId }, message: "Sell your shares before shorting", reducible: false };
     const margin = gross.mul(SHORT_MARGIN);
-    if (ctx.cash.lt(margin)) return shortfall(margin, ctx.cash);
+    if (ctx.cash.lt(margin)) return shortfall(ctx, quote, margin);
     const stockExposure = position.short.mul(quote.currentPrice).plus(gross);
     if (stockExposure.gt(ctx.totals.equity.mul(SHORT_CAP_PER_STOCK))) {
-      return { code: "SHORT_CAP", params: { capPct: "20.00" }, message: "A short on one stock is capped at 20% of your equity", reducible: true };
+      return { code: "SHORT_CAP", params: { capPct: "20.00", ...receipt(ctx, quote) }, message: "A short on one stock is capped at 20% of your equity", reducible: true };
     }
     if (ctx.totals.shortLiability.plus(gross).gt(ctx.totals.equity.mul(SHORT_CAP_TOTAL))) {
-      return { code: "SHORT_CAP", params: { capPct: "50.00" }, message: "Shorts are capped at 50% of your equity in total", reducible: true };
+      return { code: "SHORT_CAP", params: { capPct: "50.00", ...receipt(ctx, quote) }, message: "Shorts are capped at 50% of your equity in total", reducible: true };
     }
   } else {
     if (position.short.lt(quantity)) return { code: "INSUFFICIENT_SHARES", params: { available: shares(position.short) }, message: "You haven't shorted that many shares", reducible: true };
     const released = position.escrow.mul(quantity.div(position.short));
     const deficit = net.minus(released);
-    if (deficit.gt(0) && ctx.cash.lt(deficit)) return shortfall(deficit, ctx.cash);
+    if (deficit.gt(0) && ctx.cash.lt(deficit)) return shortfall(ctx, quote, deficit);
   }
   return null;
 }

@@ -90,6 +90,10 @@ describe("quotes and trades", () => {
     const { code, action, params } = response.json().error;
     expect({ code, action }).toEqual({ code: "INSUFFICIENT_CASH", action: "REDUCE_QUANTITY" });
     expect(new Decimal(params.shortBy).toFixed(2)).toBe(new Decimal(params.needed).minus(params.available).toFixed(2));
+    // W05 shows the receipt beside the fix: what 300 would cost, and when the next stimulus check lands (Monday 9 am in New York).
+    expect(params).toMatchObject({ feeRate: "0.50", total: params.needed, nextStimulusAt: "2026-10-26T13:00:00Z" });
+    expect(new Decimal(params.gross).plus(params.fee).toFixed(2)).toBe(params.total);
+    expect(new Decimal(params.price).mul(300).minus(params.gross).abs().lte("1.50")).toBe(true);
     expect((await quote(mia, nate, "BUY", params.maxQuantity)).statusCode).toBe(201);
     expect((await quote(mia, nate, "BUY", new Decimal(params.maxQuantity).plus("0.0001").toString())).statusCode).toBe(422);
   });
@@ -128,8 +132,10 @@ describe("quotes and trades", () => {
 
   it("caps shorts at 20% of equity per stock", async () => {
     const response = await quote(nate, mia, "SHORT", "30");
-    expect(response.json().error).toMatchObject({ code: "SHORT_CAP", params: { capPct: "20.00" } });
-    expect((await quote(nate, mia, "SHORT", response.json().error.params.maxQuantity)).statusCode).toBe(201);
+    expect(response.json().error).toMatchObject({ code: "SHORT_CAP", params: { capPct: "20.00", feeRate: "0.50" } });
+    const { params } = response.json().error;
+    expect(new Decimal(params.gross).minus(params.fee).toFixed(2)).toBe(params.total);
+    expect((await quote(nate, mia, "SHORT", params.maxQuantity)).statusCode).toBe(201);
   });
 
   it("refuses halted stocks", async () => {

@@ -37,7 +37,8 @@ const serializeMembership = (row: MembershipRow) => ({
   listingConsentAt: isoTimeOrNull(row.listing_consent_at),
   joinedAt: isoTime(row.joined_at),
   badges: [],
-  superInjunctionsLeft: SUPER_INJUNCTIONS_PER_SEASON
+  superInjunctionsLeft: SUPER_INJUNCTIONS_PER_SEASON,
+  superInjunctionsPerSeason: SUPER_INJUNCTIONS_PER_SEASON
 });
 
 /** The user's memberships (all of them, or one exchange's), each with its active listing. */

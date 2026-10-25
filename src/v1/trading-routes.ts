@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import { accountBalance, accounts } from "../core/ledger.js";
-import { marketSession } from "../core/market-hours.js";
+import { marketSession, nextWeeklyPayoutAt } from "../core/market-hours.js";
 import { quoteTrade, reserveVersion, type MarketQuote } from "../core/market.js";
 import { maybeOne, one, pool, withTransaction } from "../db.js";
 import { appError } from "../errors.js";
@@ -64,7 +64,9 @@ async function loadTradable(client: Pick<PoolClient, "query">, listingId: string
   return row;
 }
 
-async function orderContext(client: PoolClient, input: { userId: string; listing: TradableRow; side: TradeSide; feeRate: Decimal; position: PositionRow | null }): Promise<OrderContext> {
+async function orderContext(client: PoolClient, input: {
+  userId: string; exchange: ExchangeRow; now: Date; listing: TradableRow; side: TradeSide; feeRate: Decimal; position: PositionRow | null;
+}): Promise<OrderContext> {
   const seasonId = input.listing.season_id;
   const reserved = await one<{ quantity: string }>(client,
     "SELECT COALESCE(SUM(quantity),0)::text AS quantity FROM limit_orders WHERE season_id=$1 AND user_id=$2 AND stock_id=$3 AND side='SELL' AND status='OPEN'",
@@ -77,7 +79,8 @@ async function orderContext(client: PoolClient, input: { userId: string; listing
     position: input.position,
     cash: await accountBalance(client, accounts.userCash(input.userId, seasonId)),
     reservedSellShares: new Decimal(reserved.quantity),
-    totals: await portfolioTotals(client, input.userId, seasonId)
+    totals: await portfolioTotals(client, input.userId, seasonId),
+    nextStimulusAt: isoTime(nextWeeklyPayoutAt(input.exchange.timezone, input.now))
   };
 }
 
@@ -120,7 +123,7 @@ export async function registerTradingRoutes(v1: FastifyInstance, options: { now:
         "SELECT * FROM positions WHERE season_id=$1 AND user_id=$2 AND stock_id=$3", [listing.season_id, userId, listing.stock_id]
       );
       const feeRate = new Decimal(exchange.fee_rate);
-      const ctx = await orderContext(client, { userId, listing, side: input.side, feeRate, position });
+      const ctx = await orderContext(client, { userId, exchange, now, listing, side: input.side, feeRate, position });
       const quote = checkOrder(ctx, new Decimal(input.quantity));
       const saved = await one<{ id: string; expires_at: Date }>(client,
         `INSERT INTO trade_quotes(exchange_id, season_id, user_id, stock_id, side, quantity, gross_amount, fee_amount,
@@ -201,7 +204,7 @@ export async function registerTradingRoutes(v1: FastifyInstance, options: { now:
       if (quote.consumed_at || quote.expired || reserveVersion(reserves) !== quote.reserve_version) throw stale(freshPrice());
 
       const position = await loadPosition(client, userId, quote.stock_id, quote.season_id, true);
-      const ctx = await orderContext(client, { userId, listing, side: quote.side, feeRate, position });
+      const ctx = await orderContext(client, { userId, exchange, now, listing, side: quote.side, feeRate, position });
       const calculated = checkOrder(ctx, new Decimal(quote.quantity));
       const { tradeId, executedAt } = await executeTrade(client, {
         userId, quoteId: quote.id, seasonId: quote.season_id, stockId: quote.stock_id, side: quote.side,

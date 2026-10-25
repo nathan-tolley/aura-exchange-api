@@ -232,7 +232,8 @@ describe("GET /v1/me", () => {
     const me = await get("/v1/me", session.accessToken);
     expectResponseMatchesSpec("get", "/me", 200, me.json());
     expect(me.json().memberships).toEqual([expect.objectContaining({
-      exchangeId, role: "ADMIN", listing: { id: listing.rows[0]!.id, ticker: "$NATE", displayName: "Nate", avatarUrl: null }, superInjunctionsLeft: 3
+      exchangeId, role: "ADMIN", listing: { id: listing.rows[0]!.id, ticker: "$NATE", displayName: "Nate", avatarUrl: null }, superInjunctionsLeft: 3,
+      superInjunctionsPerSeason: 3
     })]);
   });
 });

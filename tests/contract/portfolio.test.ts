@@ -40,7 +40,9 @@ describe("GET /v1/exchanges/{id}/portfolio", () => {
     expectResponseMatchesSpec("get", "/exchanges/{exchangeId}/portfolio", 200, response.json());
     expect(response.json()).toMatchObject({
       exchangeId, cash: "10000.00", reservedCash: "0.00", netWorth: "10000.00", seasonChangeAbs: "0.00", seasonChangePct: "0.00",
-      dayChangeAbs: "0.00", positions: [], openOrders: [], canDeclareBankruptcy: false, marketState: "OPEN"
+      dayChangeAbs: "0.00", positions: [], openOrders: [], canDeclareBankruptcy: false, marketState: "OPEN",
+      // Saturday noon in New York: the next stimulus check is Monday at 9 am there.
+      nextStimulusAt: "2026-10-26T13:00:00Z"
     });
   });
 

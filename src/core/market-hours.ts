@@ -82,3 +82,44 @@ export function marketSession(hours: MarketHours, timeZone: string, now: Date): 
   if (sincePreOpen < bounds.afterClose) return { state: "AFTER", nextChangeAt: at(bounds.afterClose), opensAt };
   return { state: "CLOSED", nextChangeAt: opensAt, opensAt };
 }
+
+/** PLAN.md → Economy: the weekly allowance (the "stimulus check") and dividends pay on Mondays from 9 am, local time. */
+export const WEEKLY_PAYOUT = { weekday: 1, hour: 9 } as const;
+
+/** The local calendar date (as a UTC midnight), weekday (0 = Sunday) and hour in a timezone. */
+function localCalendar(timeZone: string, now: Date): { date: number; weekday: number; hour: number } {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23"
+  }).formatToParts(now).map((part) => [part.type, part.value]));
+  const date = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day));
+  return { date, weekday: new Date(date).getUTCDay(), hour: Number(parts.hour) };
+}
+
+/** How far the timezone's clock is ahead of UTC at `instant`, in ms. */
+function zoneOffset(timeZone: string, instant: number): number {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+  }).formatToParts(new Date(instant)).map((part) => [part.type, part.value]));
+  const wall = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(parts.second));
+  return wall - Math.floor(instant / 1000) * 1000;
+}
+
+/** The instant a local wall-clock time (`localWall`, as if it were UTC) happens in the timezone. */
+function zonedInstant(timeZone: string, localWall: number): Date {
+  const first = localWall - zoneOffset(timeZone, localWall);
+  return new Date(localWall - zoneOffset(timeZone, first));
+}
+
+export function weeklyPayoutDue(timeZone: string, now: Date): boolean {
+  const local = localCalendar(timeZone, now);
+  return local.weekday === WEEKLY_PAYOUT.weekday && local.hour >= WEEKLY_PAYOUT.hour;
+}
+
+/** When the next weekly payout starts: this Monday's if it's still before 9 am, otherwise next Monday's. Exact across clock changes. */
+export function nextWeeklyPayoutAt(timeZone: string, now: Date): Date {
+  const local = localCalendar(timeZone, now);
+  const daysAhead = (WEEKLY_PAYOUT.weekday - local.weekday + 7) % 7;
+  const at = (days: number) => zonedInstant(timeZone, local.date + days * DAY * 60_000 + WEEKLY_PAYOUT.hour * 3_600_000);
+  const candidate = at(daysAhead);
+  return candidate > now ? candidate : at(daysAhead + 7);
+}

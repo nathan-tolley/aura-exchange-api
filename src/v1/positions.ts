@@ -55,7 +55,9 @@ function positionView(row: PositionViewRow) {
       borrowFeeDailyPct: percentOfRatio(BORROW_FEE_DAILY)
     },
     openedAt: isoTime(row.opened_at ?? row.updated_at),
-    closedAt: null
+    closedAt: null,
+    // Only open positions are served until Phase 1's margin step records liquidations.
+    liquidation: null
   };
 }
 

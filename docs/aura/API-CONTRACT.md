@@ -79,10 +79,10 @@ Every non-2xx response has this body:
 | 409 | `LISTING_HALTED` | `haltId`, `resumesAt` | no | WAIT | W10 halted |
 | 409 | `MARKET_CLOSED` | `opensAt`, `queuedEvents` | no | WAIT | W09 closed |
 | 409 | `ORDER_TYPE_NOT_ALLOWED` | `marketState` (limit orders only in PRE/AFTER) | no | NONE | trade sheet |
-| 422 | `INSUFFICIENT_CASH` | `needed`, `available`, `shortBy`, `maxQuantity` | no | REDUCE_QUANTITY | W05 rejected |
+| 422 | `INSUFFICIENT_CASH` | `needed`, `available`, `shortBy`, `maxQuantity`, `nextStimulusAt` (when the next allowance lands), and the receipt for the quantity asked: `price`, `gross`, `feeRate`, `fee`, `total` (named and formatted as on Quote) | no | REDUCE_QUANTITY | W05 rejected |
 | 422 | `INSUFFICIENT_SHARES` | `available` | no | REDUCE_QUANTITY | selling or covering more than you hold |
 | 422 | `ORDER_TOO_LARGE` | `maxQuantity` (10% of pool) | no | REDUCE_QUANTITY | W05 variant |
-| 422 | `SHORT_CAP` | `maxQuantity`, `capPct` | no | REDUCE_QUANTITY | W05 variant |
+| 422 | `SHORT_CAP` | `maxQuantity`, `capPct`, and the receipt: `price`, `gross`, `feeRate`, `fee`, `total` | no | REDUCE_QUANTITY | W05 variant |
 | 422 | `OPPOSITE_POSITION` | `positionId` | no | NONE | "Close your short first" |
 | 422 | `EQUITY_TOO_LOW` | `equity`, `minimum` | no | NONE | W04 Chapter 7 offer |
 | 422 | `DAILY_FILING_LIMIT` | `limit`, `resetsAt` | no | WAIT | file sheet |
@@ -116,14 +116,15 @@ The same enums are used by REST, socket `status` messages and notifications. The
 
 ```json
 { "type": "ticks", "exchangeId": "…", "asOf": "…", "marketState": "OPEN",
-  "listings": [ { "id": "…", "price": "124.10", "changePct": "6.70", "state": "ACTIVE" } ] }
+  "listings": [ { "id": "…", "price": "124.10", "changeAbs": "7.79", "changePct": "6.70", "state": "ACTIVE" } ] }
 { "type": "tape", "exchangeId": "…", "item": { …TapeItem… } }
 { "type": "status", "resource": "event|halt|order|position|sec", "id": "…", "status": "RULED", "at": "…" }
 { "type": "notification", "item": { …Notification… } }
 { "type": "market", "exchangeId": "…", "marketState": "CLOSED", "nextChangeAt": "…" }
 ```
 
-- Ticks are sent at most every 15 s per exchange, with only the listings that changed.
+- Ticks are sent at most every 15 s per exchange, with only the listings that changed. `changeAbs` and `changePct` are since the previous close, like `ListingSummary`.
+- Every subscribed exchange also gets a `ticks` message at least every 30 s in every market state, CLOSED and HALTED included. When nothing changed, `listings` is empty. So `asOf` older than 60 s always means something was missed, whatever the market state.
 - **Fallback**: if the socket is down, the app polls `GET /exchanges/{id}/market` every 15 s while in the foreground and marks the data Delayed.
 - The socket is an accelerator, never the source of truth. After a reconnect, the app refetches the screen it's on.
 

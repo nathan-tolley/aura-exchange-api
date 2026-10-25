@@ -376,6 +376,10 @@ Plumbing decisions that are mine to make. Game rules go to `DECISIONS.md` instea
   - Time: hype, the volatility spike and quiet decay run on wall-clock seconds; reversion, drift and noise run on open-market seconds. A trading day is PRE + OPEN + AFTER, 19 h with the default hours, so "2% daily vol" and the "2-trading-day half-life" are per 19 open hours. Reversion uses the exact discrete step, so one long tick and many short ones agree.
   - A news move F × (1 + m) is split in log terms: B × √(1+m) and H × √(1+m). The gap and the drift are fractions of the same log move. The volatility spike is 2 × |d|/30 on top of base (3× at ±30), with d read back from the combined move, so several queued rulings spike as one.
   - Quiet decay bleeds B (not H, which decays anyway), continuously at 0.5% a day after 3 quiet days, capped at 5% since the last ruling. `quietDecay: null` turns it off per exchange.
+- 2026-10-25: **spec draft.7** (the app's contract requests #2–#9; answers in `docs/aura/CONTRACT-RESPONSES.md`).
+  - The weekly payout (allowance and dividends) has one schedule, `WEEKLY_PAYOUT` in `src/core/market-hours.ts`: the worker asks `weeklyPayoutDue`, and `nextStimulusAt` comes from `nextWeeklyPayoutAt`, which converts the local Monday 9 am exactly, across clock changes. Between 9:00 and the worker's first loop after it, `nextStimulusAt` already says next week.
+  - Refusals carry their receipt through `receipt()` in `order-checks.ts`, the same numbers `POST /quotes` would have returned. `ORDER_TOO_LARGE` stays unpriced: `quoteTrade` refuses past 10% of the pool.
+  - `Position.liquidation` is `null` and `Event.denialPenaltyPct` isn't served yet; both get filled in Phase 1.
 - 2026-10-24: **two more existing bugs fixed** (both on the friend's `master`):
   - The season-close standings query passed one parameter as `$1::text` and compared it with a uuid. Postgres rejects that (`uuid = text`), so seasons never closed and `pilot-reset` would time out.
   - The daily `market-open` cleared every `halted_until`, including the `'infinity'` that marks a delisted pool. It now leaves delisted pools alone.
