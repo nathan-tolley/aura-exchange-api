@@ -255,6 +255,34 @@ Written at the end of 0.1. Each bullet is about one commit.
 6. **`GET /me`**: the user plus their memberships.
 7. **Check:** contract tests for all five auth operations and `/me`, plus a test that reusing a refresh token revokes the family.
 
+## Plan for 0.7 (cloud)
+
+Written at the end of 0.6. Blocked on Nathan choosing the host (open question 7) and creating the account; I can't create accounts or enter payment details. Each bullet is about one commit.
+
+**Host.** All three run a Dockerfile, a long-running worker and managed Postgres in US-East. What separates them for us:
+
+| | Deploy without pushing to GitHub | API + worker + Postgres in one place | Notes |
+| --- | --- | --- | --- |
+| Railway | Yes (`railway up` from this folder) | Yes, one project | Pre-deploy command for migrations; usage-based billing |
+| Fly.io | Yes (`fly deploy` builds the Dockerfile) | Yes (process groups in `fly.toml`) | `release_command` for migrations; machines must not auto-stop, or the worker sleeps |
+| Render | No: deploys from a Git repo or a registry image | Yes (`render.yaml` blueprint) | Background workers are a paid instance type |
+
+My pick is **Railway**: it's the least setup for three services, and like Fly it deploys from this folder, so nothing waits on the fork question. Check current pricing before committing; I haven't.
+
+1. **Host-neutral production fixes.**
+   - The Dockerfile installs with `--frozen-lockfile=false`; make it frozen.
+   - Run migrations as the host's pre-deploy step instead of in the API's `CMD`, so a second API instance can't race them (the server already refuses to start with migrations pending).
+   - `DATABASE_SSL` (off by default) for managed Postgres that requires TLS.
+   - `.env.example` listing every production variable.
+2. **Host config** (`railway.json`, `fly.toml` or `render.yaml`):
+   - `api`: the Dockerfile, `node dist-api/src/server.js`, health check `/v1/health`.
+   - `worker`: the same image, `node dist-api/src/worker.js`, exactly one instance until Phase 1's advisory lock.
+   - Postgres 18, US-East; migrations `node dist-api/scripts/migrate.js` before each deploy.
+3. **Secrets, set on the host and never committed:** `AUTH_SECRET`, `SESSION_SECRET`, `SETUP_TOKEN` (generated), `NODE_ENV=production`, `AI_PROVIDER=fake`, `MIN_APP_BUILD=1`, `APP_ORIGIN` (the console URL).
+4. **Sign-in codes.** There's no email provider yet (open question 8), so codes go to the host's log. That's enough for a test exchange: Nathan reads his code from the log. A Resend or Postmark `EmailSender` comes when he picks one.
+5. **Smoke test against the deployed URL** (`pnpm smoke --base https://…`): `/v1/health` is `OK` with a fresh worker heartbeat, the version gate answers 426, `/me` answers 401, and each body validates against `openapi/v1.yaml`. Then, by hand: sign in, create the test exchange, invite.
+6. **Check (Gate 0, part 2):** the app's dev build points at the cloud URL (the app session changes its base URL) and signs in.
+
 ## Plumbing choices
 
 Plumbing decisions that are mine to make. Game rules go to `DECISIONS.md` instead.
@@ -386,3 +414,17 @@ docker compose -f compose.dev.yaml up -d    # postgres:18 on 127.0.0.1:5433 (a n
   - Tests: vitest 5.0.5, 8 files, 23 tests, all green.
   - Build: `tsc` for the API, vite 8.3.5 for the web.
 - No DB-backed tests exist yet; everything above is pure.
+
+## Price-engine tuning (0.6)
+
+### How the simulator measures "share of movement"
+
+PLAN.md's target is that about 60% of a stock's movement traces back to events, 25% to trading and 15% to noise. The plan doesn't say how to measure that, so here's the method (`scripts/sim/season.ts`):
+
+- **Booking.** Every change of ln P goes to one source:
+  - **events**: the opening gap and the 45-minute drift, plus reversion toward fair value. Only events (and the hype and quiet decay that follow from them) move fair value, so pulling price toward it is the events' doing.
+  - **trades**: each AMM fill's ln(P after / P before).
+  - **noise**: the Student-t term.
+  - Reversion is split by how far each source has pushed ln P away from ln F: each source's booked total, minus the fair-value change for events, shrinks by the same (1 − e^(−κΔt)) the engine uses. A pump that fades is booked to trades both ways, and so is noise that fades. The split is exact and linear, and what's left over (rounding the reserves to 8 dp) stays under 1e-6.
+- **Share.** Over every trading day of every listing, Σ|Δ| of each source divided by the sum over all three. A trading day runs pre-open to pre-open, so a gap queued overnight counts on the day it lands.
+- **Why daily.** The answer depends heavily on the window. Noise is a random walk, so it dominates short windows; events are jumps that stick, so they dominate long ones (a typical run reads about 35/18/47 per hour, 60/14/26 per day and 80/6/14 per week). The app's headline numbers are the day change and the 24-hour sparkline, so the day is the window players feel. The simulator also prints the hourly, weekly and daily Σ Δ² shares for comparison.

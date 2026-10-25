@@ -12,6 +12,15 @@ describe("season simulator", { timeout: 60_000 }, () => {
     expect(runSeason({ ...config, seed: 2 }).daily).not.toEqual(first.daily);
   });
 
+  it("keeps the same events and noise when only the trading changes, so sweeps compare like with like", () => {
+    const busier = runSeason({ ...config, trading: { ...config.trading, casualPerHour: 2 } });
+    expect(busier.trades.count).toBeGreaterThan(first.trades.count);
+    expect(busier.events).toEqual(first.events);
+    expect(busier.daily.map((row) => row.noise)).toEqual(first.daily.map((row) => row.noise));
+    expect(busier.daily.map((row) => row.events)).toEqual(first.daily.map((row) => row.events));
+    expect(busier.daily.map((row) => row.trades)).not.toEqual(first.daily.map((row) => row.trades));
+  });
+
   it("books every move of the price to events, trades or noise", () => {
     const result = first;
     expect(result.residual).toBeLessThan(1e-6);

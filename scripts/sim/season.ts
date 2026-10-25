@@ -53,6 +53,8 @@ export interface SimConfig {
   listings: number;
   weeks: number;
   tickSeconds: number;
+  /** Shares in each pool at IPO, priced at 100 (so credits are 100 × shares). */
+  poolShares: number;
   engine: EngineParams;
   events: EventConfig;
   trading: TradingConfig;
@@ -63,6 +65,7 @@ export const DEFAULT_SIM_CONFIG: SimConfig = {
   listings: 8,
   weeks: 8,
   tickSeconds: 15,
+  poolShares: 4000,
   engine: DEFAULT_ENGINE_PARAMS,
   events: {
     perListingPerDay: 1.5,
@@ -156,6 +159,8 @@ interface Listing {
   index: number;
   ticker: string;
   state: ListingState;
+  /** This listing's own noise stream. */
+  noise: Rng;
   eventRate: number;
   haltedUntil: number;
   lastTickAt: number;
@@ -243,7 +248,9 @@ export function sourceShares(deltas: Sources[], power = 1): Sources {
 }
 
 export function runSeason(config: SimConfig): SeasonResult {
-  const rng: Rng = seededRng(config.seed);
+  // Separate random streams, so changing how players trade changes neither the events nor the noise path.
+  const eventRng: Rng = seededRng(`${config.seed}:events`);
+  const tradeRng: Rng = seededRng(`${config.seed}:trades`);
   const { events: ev, trading: tr, tickSeconds } = config;
 
   // t = 0 is Monday's pre-open; each simulated day runs pre-open to pre-open in the exchange's local time.
@@ -267,11 +274,11 @@ export function runSeason(config: SimConfig): SeasonResult {
   const result: Pick<SeasonResult, "daily" | "hourly" | "events"> = { daily: [], hourly: [], events: [] };
   const counts = { count: 0, volume: new Decimal(0), liquidations: 0 };
 
-  const rates = Array.from({ length: config.listings }, () => ev.perListingPerDay * Math.exp(ev.rateSpread * normal(rng) - (ev.rateSpread ** 2) / 2));
+  const rates = Array.from({ length: config.listings }, () => ev.perListingPerDay * Math.exp(ev.rateSpread * normal(eventRng) - (ev.rateSpread ** 2) / 2));
   const listings: Listing[] = rates.map((rate, index) => {
     const personality = Math.min(2, Math.max(0.5, rate / ev.perListingPerDay));
     return {
-      index, ticker: TICKERS[index] ?? `$L${String.fromCharCode(65 + index)}X`, state: ipoListing(4000, 400000, personality), eventRate: rate,
+      index, ticker: TICKERS[index] ?? `$L${String.fromCharCode(65 + index)}X`, state: ipoListing(config.poolShares, config.poolShares * 100, personality), noise: seededRng(`${config.seed}:noise:${index}`), eventRate: rate,
       haltedUntil: 0, lastTickAt: 0, queued: [], booked: zero(), lastDaily: zero(), lastHourly: zero(), rulingsOn: new Map(),
       rulings: 0, trades: 0, high: 100, low: 100
     };
@@ -284,7 +291,7 @@ export function runSeason(config: SimConfig): SeasonResult {
 
   const price = (listing: Listing) => spotPrice(listing.state);
   const halted = (listing: Listing) => listing.haltedUntil > now;
-  const pick = <T>(items: T[]) => items[Math.floor(rng.next() * items.length)]!;
+  const pick = <T>(items: T[]) => items[Math.floor(tradeRng.next() * items.length)]!;
   const equity = (player: Player) => player.positions.reduce((sum, position, i) => {
     const p = price(listings[i]!);
     return sum.plus(position.long.mul(p)).plus(position.escrow).minus(position.short.mul(p));
@@ -346,7 +353,7 @@ export function runSeason(config: SimConfig): SeasonResult {
     if (filled.lte(0)) return;
     const close = () => {
       if (session(now) !== "OPEN" || halted(listing)) {
-        agenda.add(nextOpen(now + 1) + uniform(rng, 0, HOUR), close);
+        agenda.add(nextOpen(now + 1) + uniform(tradeRng, 0, HOUR), close);
         return;
       }
       execute(player, listing, side === "BUY" ? "SELL" : "COVER", filled);
@@ -355,7 +362,7 @@ export function runSeason(config: SimConfig): SeasonResult {
   }
 
   const others = (player: Player) => listings.filter((listing) => listing.index !== player.index);
-  const size = (scale = 1) => uniform(rng, tr.size[0], tr.size[1]) * scale;
+  const size = (scale = 1) => uniform(tradeRng, tr.size[0], tr.size[1]) * scale;
 
   /** Delivers a fair-value move now, or holds it for the opening gap while the market is closed. */
   function deliver(listing: Listing, move: number, row: Omit<EventRow, "at" | "listing" | "move" | "queued">): void {
@@ -365,7 +372,7 @@ export function runSeason(config: SimConfig): SeasonResult {
       listing.queued.push(move);
       return;
     }
-    const { state, gap } = applyNews(listing.state, [move], rng, engine);
+    const { state, gap } = applyNews(listing.state, [move], eventRng, engine);
     listing.state = state;
     listing.booked.events += gap;
   }
@@ -376,12 +383,12 @@ export function runSeason(config: SimConfig): SeasonResult {
     if (impact === 0) return;
     if (session(now) === "OPEN") {
       for (const player of players) {
-        if (player.index === listing.index || rng.next() >= tr.chaseChance * Math.min(1, Math.abs(impact) / 10)) continue;
-        agenda.add(now + uniform(rng, 60, 20 * 60), () => open(player, listing, impact > 0 ? "BUY" : "SHORT", size(Math.min(1.5, Math.abs(impact) / 10)), exponential(rng, 1 / (6 * HOUR))));
+        if (player.index === listing.index || tradeRng.next() >= tr.chaseChance * Math.min(1, Math.abs(impact) / 10)) continue;
+        agenda.add(now + uniform(tradeRng, 60, 20 * 60), () => open(player, listing, impact > 0 ? "BUY" : "SHORT", size(Math.min(1.5, Math.abs(impact) / 10)), exponential(tradeRng, 1 / (6 * HOUR))));
       }
     }
     // Up/down votes for 2 hours, ±10% of the original impact per net vote, capped at ±50%.
-    const votes = Math.max(-5, Math.min(5, Math.round(normal(rng) * 2 + 0.3)));
+    const votes = Math.max(-5, Math.min(5, Math.round(normal(eventRng) * 2 + 0.3)));
     if (votes !== 0) {
       agenda.add(now + 2 * HOUR, () => deliver(listing, followOnMove(impact, impact * (1 + 0.1 * votes)), { kind: "FOLLOW_ON", impact: impact * 0.1 * votes }));
     }
@@ -391,18 +398,18 @@ export function runSeason(config: SimConfig): SeasonResult {
     const day = localDay(now);
     const pileOn = (listing.rulingsOn.get(day) ?? 0) >= 5 ? 0.5 : 1;
     listing.rulingsOn.set(day, (listing.rulingsOn.get(day) ?? 0) + 1);
-    const lore = rng.next() < ev.loreShare;
-    const magnitude = Math.min(MAX_IMPACT, 1 + Math.floor(Math.log(1 - rng.next()) / Math.log(1 - 1 / ev.meanAbsImpact)));
+    const lore = eventRng.next() < ev.loreShare;
+    const magnitude = Math.min(MAX_IMPACT, 1 + Math.floor(Math.log(1 - eventRng.next()) / Math.log(1 - 1 / ev.meanAbsImpact)));
     const cosigns = Math.min(3, poisson(0.8)), caps = Math.min(3, poisson(0.4));
-    const impact = lore ? 0 : Math.round((rng.next() < 0.5 ? -1 : 1) * magnitude * (1 + 0.1 * (cosigns - caps)) * pileOn);
+    const impact = lore ? 0 : Math.round((eventRng.next() < 0.5 ? -1 : 1) * magnitude * (1 + 0.1 * (cosigns - caps)) * pileOn);
     const rumorAt = now + 30, rulingAt = rumorAt + 10 * 60;
     if (session(rumorAt) === "OPEN") {
-      const truth = impact === 0 ? (rng.next() < 0.5 ? 1 : -1) : Math.sign(impact);
+      const truth = impact === 0 ? (tradeRng.next() < 0.5 ? 1 : -1) : Math.sign(impact);
       for (const player of players) {
-        if (player.index === listing.index || rng.next() >= tr.rumorChance) continue;
-        const direction = rng.next() < tr.rumorAccuracy ? truth : -truth;
+        if (player.index === listing.index || tradeRng.next() >= tr.rumorChance) continue;
+        const direction = tradeRng.next() < tr.rumorAccuracy ? truth : -truth;
         const fraction = size(Math.max(0.3, Math.min(1.5, Math.abs(impact) / 10)));
-        agenda.add(rumorAt + uniform(rng, 0, 9.5 * 60), () => open(player, listing, direction > 0 ? "BUY" : "SHORT", fraction, rulingAt + uniform(rng, 5 * 60, 90 * 60) - now));
+        agenda.add(rumorAt + uniform(tradeRng, 0, 9.5 * 60), () => open(player, listing, direction > 0 ? "BUY" : "SHORT", fraction, rulingAt + uniform(tradeRng, 5 * 60, 90 * 60) - now));
       }
     }
     agenda.add(rulingAt, () => {
@@ -410,19 +417,19 @@ export function runSeason(config: SimConfig): SeasonResult {
       // A news halt while the group votes: Confirm, Decline (void) or Reconsider (a final re-rule).
       listing.haltedUntil = now + 30 * 60;
       agenda.add(listing.haltedUntil, () => {
-        const vote = rng.next();
+        const vote = eventRng.next();
         if (vote < ev.declineShare) {
           result.events.push({ at: now, listing: listing.ticker, kind: "VOIDED", impact, move: 0, queued: false });
           return;
         }
-        rule(listing, vote < ev.declineShare + ev.reconsiderShare ? Math.round(impact * uniform(rng, 0.5, 1.2)) : impact);
+        rule(listing, vote < ev.declineShare + ev.reconsiderShare ? Math.round(impact * uniform(eventRng, 0.5, 1.2)) : impact);
       });
     });
   }
 
   function poisson(mean: number): number {
     let k = 0, p = Math.exp(-mean), sum = p;
-    const u = rng.next();
+    const u = eventRng.next();
     while (u > sum) { k++; p *= mean / k; sum += p; }
     return k;
   }
@@ -431,10 +438,10 @@ export function runSeason(config: SimConfig): SeasonResult {
   for (const listing of listings) {
     const peakRate = listing.eventRate / DAY / MEAN_ACTIVITY;
     const next = () => {
-      if (rng.next() < ACTIVITY[localHour(now)]!) file(listing);
-      agenda.add(now + exponential(rng, peakRate), next);
+      if (eventRng.next() < ACTIVITY[localHour(now)]!) file(listing);
+      agenda.add(now + exponential(eventRng, peakRate), next);
     };
-    agenda.add(exponential(rng, peakRate), next);
+    agenda.add(exponential(eventRng, peakRate), next);
   }
 
   for (let week = 0; week < config.weeks; week++) {
@@ -443,7 +450,7 @@ export function runSeason(config: SimConfig): SeasonResult {
     if (ev.earnings) {
       agenda.add(week * 7 * DAY + 6 * DAY + sinceOpen("20:00"), () => {
         for (const listing of listings) {
-          const impact = Math.round(Math.max(-18, Math.min(18, 6 * normal(rng) * ev.earningsSurpriseSd)) * 10) / 10;
+          const impact = Math.round(Math.max(-18, Math.min(18, 6 * normal(eventRng) * ev.earningsSurpriseSd)) * 10) / 10;
           deliver(listing, newsMove(impact), { kind: "EARNINGS", impact });
         }
       });
@@ -455,16 +462,16 @@ export function runSeason(config: SimConfig): SeasonResult {
       if (session(now) === "OPEN") {
         const listing = pick(others(player));
         const position = player.positions[listing.index]!;
-        if (position.long.gt(0) && rng.next() < 0.5) execute(player, listing, "SELL", position.long);
-        else if (position.short.gt(0) && rng.next() < 0.5) execute(player, listing, "COVER", position.short);
+        if (position.long.gt(0) && tradeRng.next() < 0.5) execute(player, listing, "SELL", position.long);
+        else if (position.short.gt(0) && tradeRng.next() < 0.5) execute(player, listing, "COVER", position.short);
         else {
-          const side = position.long.gt(0) ? "BUY" : position.short.gt(0) || rng.next() < tr.shortShare ? "SHORT" : "BUY";
-          open(player, listing, side, size(), exponential(rng, 1 / (tr.holdDays * DAY)));
+          const side = position.long.gt(0) ? "BUY" : position.short.gt(0) || tradeRng.next() < tr.shortShare ? "SHORT" : "BUY";
+          open(player, listing, side, size(), exponential(tradeRng, 1 / (tr.holdDays * DAY)));
         }
       }
-      agenda.add(now + exponential(rng, tr.casualPerHour / HOUR), casual);
+      agenda.add(now + exponential(tradeRng, tr.casualPerHour / HOUR), casual);
     };
-    agenda.add(exponential(rng, tr.casualPerHour / HOUR), casual);
+    agenda.add(exponential(tradeRng, tr.casualPerHour / HOUR), casual);
 
     const value = () => {
       if (session(now) === "OPEN") {
@@ -473,15 +480,15 @@ export function runSeason(config: SimConfig): SeasonResult {
         const off = Math.log(price(listing).div(fairValue(listing.state)).toNumber());
         if (off > tr.valueThreshold) {
           if (position.long.gt(0)) execute(player, listing, "SELL", position.long);
-          else open(player, listing, "SHORT", size(), uniform(rng, 0.5, 2) * DAY);
+          else open(player, listing, "SHORT", size(), uniform(tradeRng, 0.5, 2) * DAY);
         } else if (off < -tr.valueThreshold) {
           if (position.short.gt(0)) execute(player, listing, "COVER", position.short);
-          else open(player, listing, "BUY", size(), uniform(rng, 0.5, 2) * DAY);
+          else open(player, listing, "BUY", size(), uniform(tradeRng, 0.5, 2) * DAY);
         }
       }
-      agenda.add(now + exponential(rng, tr.valuePerHour / HOUR), value);
+      agenda.add(now + exponential(tradeRng, tr.valuePerHour / HOUR), value);
     };
-    agenda.add(exponential(rng, tr.valuePerHour / HOUR), value);
+    agenda.add(exponential(tradeRng, tr.valuePerHour / HOUR), value);
   }
 
   // Margin: shorts under 125% collateral are bought back by force.
@@ -506,7 +513,7 @@ export function runSeason(config: SimConfig): SeasonResult {
     if (previous === "CLOSED" && state !== "CLOSED") {
       for (const listing of listings) {
         if (listing.queued.length === 0) continue;
-        const { state: next, gap } = applyNews(listing.state, listing.queued, rng, engine);
+        const { state: next, gap } = applyNews(listing.state, listing.queued, eventRng, engine);
         listing.state = next;
         listing.booked.events += gap;
         listing.queued = [];
@@ -515,7 +522,7 @@ export function runSeason(config: SimConfig): SeasonResult {
     if (state !== "CLOSED") {
       for (const listing of listings) {
         if (halted(listing)) continue;
-        const { state: next, move } = tick(listing.state, { elapsedSeconds: now - listing.lastTickAt, tradingSeconds: tickSeconds }, rng, engine);
+        const { state: next, move } = tick(listing.state, { elapsedSeconds: now - listing.lastTickAt, tradingSeconds: tickSeconds }, listing.noise, engine);
         listing.state = next;
         listing.lastTickAt = now;
         const b = listing.booked;

@@ -10,7 +10,7 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
   2. `scripts/simulate.ts` + `pnpm sim`: 8 listings, 8 weeks, default hours, Poisson events (rumor 10 min, closed-hours queue → one opening gap, news halts, follow-on votes, weekly earnings), simple trader agents through `quoteTrade`. Attribution: c_events / c_trades / c_noise per listing, reversion split by each source's deviation from F; shares of daily movement. CSVs into `sim-out/` (gitignored).
   3. Tune to 60/25/15; write the tuning and a sensitivity table into NOTES.md; tick ROADMAP.
 - Next action: step 3, tune. Baseline with the plan numbers (seed 1, 2 weeks, 60 s ticks): daily shares 60 / 13 / 26. Sweep with `pnpm sim --weeks 4 --tick 60 --runs 3 --sweep <key>=a,b,c`; confirm the result on full 8-week, 15 s seasons; write the tuning into NOTES.md → Price-engine tuning
-- Uncommitted work: none
+- Uncommitted work: tuning in progress. `scripts/sim/season.ts` has `poolShares` as a setting and separate random streams (events, trades, noise per listing) so sweeps compare like with like; NOTES.md has the 0.7 plan and the start of "Price-engine tuning (0.6)". Findings so far (4 weeks, 60 s ticks, 3 seeds): hold time and casual trade rate barely move the trade share (12–17%); base vol 1% → noise 14.5%, 1.4% → 19%, 2% → 26%.
 - Waiting on Nathan:
   - Spec draft.6 (named error examples): tell the app session to sync `api/openapi.yaml` again.
   - Node 24 on the host? pnpm 11.25.0 needs Node ≥ 22.13; the host has 20.20.0. Checks run in a `node:24` container meanwhile (NOTES.md → Checks). Ask before changing the global Node.
