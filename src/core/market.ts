@@ -85,8 +85,12 @@ export function collateralRatio(escrowValue: Decimal.Value, coverCost: Decimal.V
   return new Decimal(escrowValue).div(liability);
 }
 
+/** PLAN.md → Trading: shorts are liquidated under 125% collateral, warned at 140% (DECISIONS.md). */
+export const MAINTENANCE_COLLATERAL = new Decimal("1.25");
+export const WARNING_COLLATERAL = new Decimal("1.40");
+
 export function isLiquidatable(escrowValue: Decimal.Value, coverCost: Decimal.Value): boolean {
-  return collateralRatio(escrowValue, coverCost).lt("1.25");
+  return collateralRatio(escrowValue, coverCost).lt(MAINTENANCE_COLLATERAL);
 }
 
 export function auraComposite(deltas: number[]): number {

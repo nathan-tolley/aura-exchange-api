@@ -3,9 +3,9 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: 0.5 → quotes and trades with typed rejections
+- Step: 0.5 → portfolio
 - State: in progress
-- Next action: extract the legacy execute body into `src/services/trade-execution.ts` (shared, aura coupling only for `/api`); `src/services/order-checks.ts` with contract errors + `maxQuantity` by binary search; `POST /quotes` (hours, halt, tradingEnabled, self-trade, previous, short block with liquidation price, cashAfter) and `POST /trades` (QUOTE_STALE {oldPrice,newPrice,changePct}, Idempotency-Key as the trades key)
+- Next action: `GET /exchanges/{id}/portfolio`: cash, reserved cash (open buy limits), net worth, season and day change, positions (shared `positionViews`), open limit orders as `Order`, `canDeclareBankruptcy` (equity < 100), freshness. Then the Prism parity check and close 0.5
 - Uncommitted work: none
 - Waiting on Nathan:
   - Node 24 on the host? pnpm 11.25.0 needs Node ≥ 22.13; the host has 20.20.0. Checks run in a `node:24` container meanwhile (NOTES.md → Checks). Ask before changing the global Node.
@@ -33,3 +33,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-24 · 0.5 · Market hours per exchange (`src/core/market-hours.ts`), `POST/GET /exchanges`, `GET /exchanges/{id}`, shared views. 122 tests green.
 - 2026-10-24 · 0.5 · Invites (create, preview, accept), ticker check, IPO at 4,000/400,000; migration 016; spec draft.5 (5 new codes); DECISIONS open question 11 (member cap 20). 130 tests green.
 - 2026-10-24 · 0.5 · `GET /exchanges/{id}/market`, `/listings/{id}`, `/listings/{id}/candles` with freshness, sparkline, AURA index, badges. 136 tests green.
+- 2026-10-24 · 0.5 · `POST /quotes` and `POST /trades` (shared `executeTrade` with the console; typed rejections with `maxQuantity`; hours, halts and the 3-listing rule). 149 tests green.
