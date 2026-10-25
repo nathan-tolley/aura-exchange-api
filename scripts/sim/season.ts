@@ -66,7 +66,8 @@ export const DEFAULT_SIM_CONFIG: SimConfig = {
   weeks: 8,
   tickSeconds: 15,
   poolShares: 4000,
-  engine: DEFAULT_ENGINE_PARAMS,
+  // The tuning proposed in DECISIONS.md open question 12. The engine's own default stays at the plan's 2% until it's agreed.
+  engine: { ...DEFAULT_ENGINE_PARAMS, baseDailyVol: 0.011 },
   events: {
     perListingPerDay: 1.5,
     rateSpread: 0.5,
@@ -79,7 +80,7 @@ export const DEFAULT_SIM_CONFIG: SimConfig = {
   },
   trading: {
     casualPerHour: 0.4,
-    size: [0.03, 0.12],
+    size: [0.05, 0.2],
     holdDays: 1,
     shortShare: 0.25,
     rumorChance: 0.3,

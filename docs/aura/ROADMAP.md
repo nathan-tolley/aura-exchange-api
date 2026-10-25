@@ -63,12 +63,13 @@ Work top to bottom. Tick a box only when its check passes and `pnpm check` is gr
   - 2026-10-24: passes. `tests/contract/coverage.test.ts` covers every x-phase 0 operation; the harness's shape check enforces the same properties the mock serves.
 
 ### 0.6 Price-engine simulator
-- [ ] `src/engine/`: m(d) curve, fair value F = B×H with a 3-day hype half-life, gap of 40–120% plus 45-minute drift, mean reversion (2-day half-life), Student-t noise (df 4), the volatility spike, and re-solving AMM reserves to a target price.
+- [x] `src/engine/`: m(d) curve, fair value F = B×H with a 3-day hype half-life, gap of 40–120% plus 45-minute drift, mean reversion (2-day half-life), Student-t noise (df 4), the volatility spike, and re-solving AMM reserves to a target price.
   - All of it is pure and seeded.
-- [ ] `scripts/simulate.ts` (`pnpm sim`):
+- [x] `scripts/simulate.ts` (`pnpm sim`):
   - Replays a fake 8-week season for 6–8 listings with random events and trades.
   - Prints the share of price movement from events / trades / noise, plus summary charts as CSV.
 - **Check (Gate 0, part 1):** the simulator lands near **60/25/15**. The tuning that got there is written in NOTES.md.
+  - 2026-10-25: passes with the proposed tuning: 57.5 / 26.6 / 15.9 over three full seasons at 15 s ticks (59.3 / 26.5 / 14.2 over five at 60 s). The plan's numbers give 57.8 / 17.1 / 25.2. The tuning is base vol 2% → 1.1% (DECISIONS.md open question 12; the engine default stays at 2% until Nathan agrees) and simulated bets of 5–20% of equity. NOTES.md → Price-engine tuning.
 
 ### 0.7 Cloud
 - [ ] Ask Nathan which host (Fly.io, Railway or Render). Deploy the API and worker containers with managed Postgres in US-East, with migrations running on deploy.

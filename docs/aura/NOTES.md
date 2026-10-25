@@ -427,4 +427,73 @@ PLAN.md's target is that about 60% of a stock's movement traces back to events, 
   - **noise**: the Student-t term.
   - Reversion is split by how far each source has pushed ln P away from ln F: each source's booked total, minus the fair-value change for events, shrinks by the same (1 − e^(−κΔt)) the engine uses. A pump that fades is booked to trades both ways, and so is noise that fades. The split is exact and linear, and what's left over (rounding the reserves to 8 dp) stays under 1e-6.
 - **Share.** Over every trading day of every listing, Σ|Δ| of each source divided by the sum over all three. A trading day runs pre-open to pre-open, so a gap queued overnight counts on the day it lands.
-- **Why daily.** The answer depends heavily on the window. Noise is a random walk, so it dominates short windows; events are jumps that stick, so they dominate long ones (a typical run reads about 35/18/47 per hour, 60/14/26 per day and 80/6/14 per week). The app's headline numbers are the day change and the 24-hour sparkline, so the day is the window players feel. The simulator also prints the hourly, weekly and daily Σ Δ² shares for comparison.
+- **Why daily.** The answer depends heavily on the window. Noise is a random walk, so it dominates short windows; events are jumps that stick, so they dominate long ones (one run on the plan's numbers read about 35/18/47 per hour, 60/14/26 per day and 80/6/14 per week). The app's headline numbers are the day change and the 24-hour sparkline, so the day is the window players feel. The simulator also prints the hourly, weekly and daily Σ Δ² shares for comparison.
+
+### What the simulated season assumes
+
+These are guesses about how a friend group plays, not game rules. They're all settings (`pnpm sim --set …`), defaults in `DEFAULT_SIM_CONFIG`:
+
+- 8 members, each one listing, 8 weeks, the default hours, every day a trading day. Each starts with A$10,000 and gets A$1,000 every Monday at 9 am.
+- **Events**: about 1.5 rulings per listing per day (12 a day for the group), each listing's rate spread lognormally around that (sd 0.5), filed mostly in the evening and rarely 2–7 am. Personality = the listing's rate ÷ the mean, clamped to 0.5–2.0 (the plan says the engine learns it from how often a person generates events). 15% LORE; otherwise |d| is geometric with mean 6 (most events small, about 1 in 10 over 15), ± with equal odds, then co-signs and caps (±10% each, up to 3), and half impact after 5 rulings on one person in a day. Over ±15 halts the stock for a 30-minute vote: 15% decline (void), 15% reconsider (×0.5–1.2), the rest confirm. Up/down votes add a follow-on move 2 hours later (net votes ~ N(0.3, 2), ±10% each, capped ±50%). Weekly earnings on Sunday at 8 pm: d = 6 × N(0, 0.6), clamped to ±18.
+- **Trading** (market orders, regular hours only, real `quoteTrade` with the 0.5% fee, the 10%-of-pool cap, the short caps and 125% liquidations):
+  - casual: 0.4 trades per player per regular hour on a random friend's stock, 5–20% of equity, 25% of new positions short, held about a day;
+  - rumor: 30% of players trade each rumor during regular hours and guess its direction right 70% of the time, then sell the news 5–90 minutes after the ruling;
+  - news chasers: 30% of players (scaled by |d|/10) follow a ruling within 20 minutes and hold about 6 hours;
+  - value: 0.1 checks per player per regular hour, trading back toward the analysts' target when price is more than 6% off fair value.
+  - That comes to about 13 trades per player per day, a busy group.
+- Not modelled: limit, stop and extended-hours orders, single-stock and market-wide breakers, splits, the SEC, appeals, self-filing at half impact, denials. None changes the price engine; they change what players do around it.
+
+### What moves the split (4-week seasons, 60 s ticks, 3 seeds each)
+
+Events, trades and noise each draw from their own random stream, so in a sweep that changes only trading, the events and the noise path are identical, and the comparison is like for like (`tests/simulator.test.ts` holds that).
+
+| Change from the plan's numbers | Events | Trades | Noise |
+| --- | --- | --- | --- |
+| None (base vol 2%, bets 3–12% of equity) | 58.8% | 14.4% | 26.7% |
+| Positions held ½ day / 6 days | 58.9% / 57.8% | 14.3% / 15.9% | 26.8% / 26.3% |
+| Casual trading 0.2 / 0.8 an hour | 60.0% / 56.8% | 12.7% / 17.4% | 27.3% / 25.8% |
+| Events 1 / 2.5 per listing per day | 50% / 65% | 18% / 13% | 32% / 22% |
+| Volatility spike 1× / 3× | 59.7% / 58.8% | 15% / 14% | 25% / 27% |
+| Base vol 1% / 1.4% | 68% / 64% | 16% / 16% | 16% / 20% |
+| Pool 2,000 / 3,000 shares | 51% / 56% | 25% / 19% | 23% / 25% |
+| Bets 10–35% of equity | 50% | 27% | 23% |
+| Base vol 1.2%, bets 8–30% | 56.0% | 28.7% | 15.3% |
+| Base vol 1.1%, bets 8–30% (or 6–25%) | 58.2% | 27.2% | 14.6% |
+| **Base vol 1.1%, bets 5–20%** | **60.8%** | **24.0%** | **15.2%** |
+| Base vol 1.1%, bets 4–15% | 65.0% | 18.7% | 16.3% |
+
+What that says:
+
+- **Noise vs events is set by base volatility.** Events ÷ noise ≈ 0.047 ÷ base vol. More filings barely help, because each event also spikes volatility and events start to cancel: even 2.5 rulings per listing per day only reaches 65/13/22. Getting 4 : 1 at 2% would take about 5 rulings per listing per day. So the noise has to come down, to about 1.1% a day.
+- **Trades are set by how much money moves, not how often.** Holding longer or trading more often barely moves the trade share, because round trips cancel within a day. What counts is the size of the bets relative to the pool, up to the point where players run out of cash (above about 6–25% of equity the share stops rising: the season's total money is the limit). The plan's pool, sized so a full balance moves price about 5%, lands on 25% when players bet 5–20% of their equity a trade. A shallower pool would get there too, but it changes a settled number.
+- The volatility spike, hold time and trading frequency hardly matter.
+
+### The tuning, and the result (Gate 0, part 1)
+
+Two changes from the plan's starting numbers, both now the simulator's defaults (`DEFAULT_SIM_CONFIG`):
+
+1. **Base daily volatility 2% → 1.1%** (personality 0.5–2.0 unchanged). This is a game rule, so it's DECISIONS.md open question 12. Until Nathan agrees, the engine's own default (`DEFAULT_ENGINE_PARAMS`) stays at the plan's 2% and only the simulator uses 1.1%. The engine isn't in the worker yet (Phase 1), so nothing live changes either way.
+2. **Simulated players bet 5–20% of their equity per trade** (was 3–12%). That's an assumption about play, not a rule: with play money and a pool sized so a full balance moves price 5%, 5–20% is, if anything, cautious.
+
+Everything else stays at the plan's numbers. Full 8-week seasons, 8 listings, daily Σ|Δ| shares:
+
+| Run | Events | Trades | Noise |
+| --- | --- | --- | --- |
+| Tuned, 15 s ticks (the real tick), seeds 1–3 | 57.5% ± 1.6 | 26.6% ± 1.8 | 15.9% ± 1.0 |
+| Tuned, 60 s ticks, seeds 1–5 | 59.3% ± 1.3 | 26.5% ± 1.9 | 14.2% ± 1.0 |
+| Plan's numbers, 60 s ticks, seeds 1–5 | 57.8% ± 0.9 | 17.1% ± 1.7 | 25.2% ± 1.5 |
+
+(± is the sd across seasons. A 15 s season takes about 70 s in the container; 60 s ticks give the same answer within a seed's spread and run four times faster, so explore with `--tick 60`.)
+
+So the tuned engine lands within about 2–3 points of 60 / 25 / 15. Other windows of the same seasons: per hour about 35 / 39 / 26, per week about 77 / 10–11 / 11–13, daily Σ Δ² about 86 / 10 / 4 (big events dominate squared moves).
+
+What a tuned season looks like (seed 1, 15 s ticks; `sim-out/` has the CSVs):
+
+- 753 rulings (1.68 per listing per day), 104 of them queued overnight for the opening gap, 4 voided by a news-halt vote, 64 earnings reports.
+- About 14 trades per player per day, A$8.5M traded in all, 7 forced liquidations. The booking residual stays at 2e-10.
+- Season returns from −31% ($SAM) to +59% ($MIA, the most chaotic listing: personality 2.0, 245 rulings). Every listing spent time both well above and well below 100: $NATE ranged from 59 to 125 and finished at 101.54.
+
+Open threads for Phase 1, not blockers:
+
+- The plan's "personality is learned from how often a person generates events" needs a rule. The simulator uses rate ÷ group mean, clamped to 0.5–2.0.
+- Trading in PRE/AFTER (limit orders), stops and the halts and breakers aren't simulated yet. Worth adding when the Phase 1 worker exists, so the simulator can replay the real tick code instead of its own loop.
