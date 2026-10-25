@@ -280,6 +280,46 @@ ssh -i ~/.ssh/aura_deploy <user>@<box> "docker logs --since 15m aura-exchange-ap
 
 **Later:** nightly `pg_dump` to a file outside the container plus a copy off the box (the friend's backup scripts are PowerShell for his home PC); an email provider; log rotation.
 
+## Plan for Phase 1 → engine tick
+
+Written 2026-10-25, before starting. It replaces `applyAmbientMarketMotion` with the pure engine from 0.6 (`src/engine/`); the worker does the I/O. Each bullet is about one commit.
+
+1. **Migration `017_engine_tick.sql`.**
+   - The engine's per-season state goes on `market_pools`, so a season reset starts fair value over with the pool:
+     - `engine_base numeric(20,8)`: B. NULL means "the price when the engine first sees the pool", so no pool-creating path (IPO, season close, the console) has to change.
+     - `engine_hype`, `engine_vol_boost`, `engine_quiet_seconds`, `engine_quiet_bleed`: `double precision`. They're dimensionless ratios, not money, and float8 round-trips a JS number exactly.
+     - `engine_drift jsonb` (the drift queue) and `engine_ticked_at timestamptz`.
+   - `listings.personality numeric(4,2)`, default 1.00, between 0.5 and 2.0. It belongs to the person, so it outlives a season. PLAN.md has the engine learn it from how often someone generates events; that comes with the event pipeline.
+   - PLAN.md's data model puts B and H on `listings`. I put them on the pool instead, for the season reset.
+   - `market_price_ticks`:
+     - New causes `ENGINE` (a tick) and `NEWS` (a ruling's gap, for the event pipeline).
+     - A `detail jsonb` column with the tick's `{reversion, drift, noise}` log moves, so the 60/25/15 split can be measured on real data.
+     - The table already has `exchange_id`, so the new code passes it explicitly.
+   - `candles_1m` and `candles_1h` (exchange, season, listing, bucket `t`, o/h/l/c, with the times of the first and last tick), kept forever. They're backfilled from the existing ticks.
+2. **Candles are maintained by a trigger** on `market_price_ticks` inserts, not by a separate rollup job.
+   - Every writer (engine, trades, console limit fills, IPO) gets candles without changing its code, and candles are never behind.
+   - `o` and `c` follow the earliest and latest tick time, so an out-of-order insert can't scramble them.
+   - Volume keeps coming from `trades` at read time. Trades are kept forever, and a candle row needs a price to exist.
+   - `/v1` candles, the sparkline and day/season high/low read the candle tables: 1D = 1m rolled into 5m, 1W = 1h, 1M/SEASON = 1h rolled into UTC days.
+3. **Retention.** Hourly, delete `ENGINE` and `AMBIENT` ticks older than 7 days. `OPEN`, `TRADE` and `NEWS` ticks are sparse and stay, so the console's replayed history (`/api/stocks/:id/history`, which reads raw ticks) keeps its trade points.
+4. **`engineTick(exchangeId, now)`** (`src/jobs/engine-tick.ts`), run every 15 s by `runExchangeSchedulers` in place of ambient motion.
+   - It runs only in PRE, OPEN and AFTER, and only once `tradingEnabled`: the IPO-day price stays at 100.00 until the market opens.
+   - One transaction per exchange: `pg_try_advisory_xact_lock(engine key, hashtext(exchangeId))`, so a second worker skips. Then the active season's live, unhalted pools are locked in id order, one `tick()` per pool, the pools updated, one `ENGINE` tick row each.
+   - Elapsed time is wall-clock since `engine_ticked_at`. Trading time is the open-market seconds in between (`openSecondsBetween`, new in `market-hours.ts`), so the first tick after the overnight close decays hype over the whole night but adds no noise for it. A pool's first tick only stamps `engine_ticked_at`.
+   - The RNG seed is `${poolId}:${15 s bucket}`, so a tick replays exactly.
+   - Params: `DEFAULT_ENGINE_PARAMS` with base vol at 2% (open question 12). `tradingDaySeconds` comes from the exchange's own hours, and `settings.quietDecay === false` turns quiet decay off.
+   - A halted pool doesn't tick. It catches up on its first tick after the halt, a small reopening move. A delisted pool never ticks.
+5. **Retire `applyAmbientMarketMotion`** and its scheduler entry. The `organic_price`/`ambient_deviation` columns stay until nothing writes them (trades still do).
+6. **Check:**
+   - Ticks write only in PRE, OPEN and AFTER.
+   - The constant product holds.
+   - A replay from the same state and time is identical.
+   - A held advisory lock makes a second ticker skip.
+   - Candles match the ticks, including out-of-order ones.
+   - Retention keeps trade ticks.
+   - Exchanges stay isolated.
+   - The `/v1` candle and market contract tests stay green.
+
 ## Plumbing choices
 
 Plumbing decisions that are mine to make. Game rules go to `DECISIONS.md` instead.

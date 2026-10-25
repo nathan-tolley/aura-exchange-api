@@ -3,9 +3,9 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: Phase 1 → engine tick. Phase 0 is done; the API is live at `https://tae.app.elicit-marketing.com/v1` (box `947ffc6`, details in NOTES.md → Plan for 0.7).
-- State: the app's contract requests #2–#10 are answered (`docs/aura/CONTRACT-RESPONSES.md`): #2–#9 as spec `1.0.0-draft.7`, #10 as a `CORS_ORIGINS` allow-list on `/v1`. Reported to Nathan; Phase 1 not started.
-- Next action: Phase 1's engine tick in the worker. Write the plan into NOTES.md first: the 15 s tick in PRE/OPEN/AFTER under an advisory lock, `src/engine` state ↔ the `market_pools` columns, `market_price_ticks`, 1m/1h candles, 7-day raw retention, retire `applyAmbientMarketMotion`. Base vol stays 2% (open question 12).
+- Step: Phase 1 → engine tick (plan in NOTES.md → Plan for Phase 1 → engine tick). Phase 0 is done; the API is live at `https://tae.app.elicit-marketing.com/v1` (box `947ffc6`).
+- State: in progress. Nathan said to leave the `origin/master` merge (`deeaa37`) for later and start Phase 1.
+- Next action: migration `017_engine_tick.sql` (engine state on `market_pools`, `listings.personality`, tick causes and `detail`, `candles_1m`/`candles_1h` with their trigger and backfill), then `src/jobs/engine-tick.ts`. Base vol stays 2% (open question 12).
 - Uncommitted work: none
 - Waiting on Nathan:
   - **Spec draft.7: tell the app session to sync** `api/openapi.yaml` and API-CONTRACT.md (one rename for it: `feeRatePct` → `feeRate` in the liquidation model).
