@@ -3,9 +3,12 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: Phase 1 → engine tick (plan in NOTES.md → Plan for Phase 1 → engine tick). Phase 0 is done; the API is live at `https://tae.app.elicit-marketing.com/v1` (box `947ffc6`).
-- State: in progress. Nathan said to leave the `origin/master` merge (`deeaa37`) for later and start Phase 1.
-- Next action: migration `017_engine_tick.sql` (engine state on `market_pools`, `listings.personality`, tick causes and `detail`, `candles_1m`/`candles_1h` with their trigger and backfill), then `src/jobs/engine-tick.ts`. Base vol stays 2% (open question 12).
+- Step: Phase 1 → market hours (next roadmap bullet). The engine tick is done. Phase 0 is done; the API is live at `https://tae.app.elicit-marketing.com/v1` (box `947ffc6`).
+- State: engine tick committed. Nathan said to leave the `origin/master` merge (`deeaa37`) for later.
+- Next action: plan "market hours" in NOTES.md before coding.
+  - A per-pool queue of news moves. A ruling that lands while CLOSED waits there, and the first tick in PRE applies the whole queue as one `applyNews` (an opening gap plus drift) and writes a `NEWS` tick. The event pipeline will feed the queue; tests feed it by hand.
+  - Move the `day_open_price` reset from midnight to pre-open, so `prevClose` is the last price before the overnight close.
+  - Make `MARKET_CLOSED.queuedEvents` real.
 - Uncommitted work: none
 - Waiting on Nathan:
   - **Spec draft.7: tell the app session to sync** `api/openapi.yaml` and API-CONTRACT.md (one rename for it: `feeRatePct` → `feeRate` in the liquidation model).
@@ -55,3 +58,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-25 · contract request #10 · CORS on `/v1` for an exact allow-list (`CORS_ORIGINS`, `src/v1/cors.ts`): preflights 204 before the version gate and bearer guard; every `/v1` reply, errors included, gets Allow-Origin, Vary, exposed rate-limit headers and CORP cross-origin; no credentials; `/api` untouched. No spec change. The live box needs a redeploy with `CORS_ORIGINS=http://localhost:5555` (Nathan's OK). 182 tests green.
 - 2026-10-25 · fork · Nathan: the fork is OK with `karkys`. DECISIONS.md open question 1 is answered. Each push still needs his OK; nothing pushed.
 - 2026-10-25 · push · With Nathan's OK: pushed `aura-v1` to `origin` as a fast-forward from `192fa15`; this commit is the new tip. No force, nothing to `master`. The fetch brought `origin/master` to `deeaa37` (karkys: casino, Swagger docs, claim recovery), which isn't merged.
+- 2026-10-25 · Phase 1 · Engine tick: migration 017 (engine state per pool, `listings.personality`, `ENGINE`/`NEWS` tick causes with `detail`, `candles_1m`/`candles_1h` kept by a trigger and backfilled), `src/jobs/engine-tick.ts` (15 s, PRE/OPEN/AFTER, once trading has opened, advisory lock, seeded replay, catch-up after halts and overnight), hourly purge of 7-day-old engine ticks, `/v1` charts and highs/lows from candles, ambient motion retired. Base vol still 2%. 193 tests green. **Engine tick ticked.**

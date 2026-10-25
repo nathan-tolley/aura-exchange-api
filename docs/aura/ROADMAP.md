@@ -79,9 +79,14 @@ Work top to bottom. Tick a box only when its check passes and `pnpm check` is gr
 
 ## Phase 1: the core loop
 
-- [ ] **Engine tick** in the worker: every 15 s in PRE/OPEN/AFTER.
+- [x] **Engine tick** in the worker: every 15 s in PRE/OPEN/AFTER.
   - Uses the advisory lock, writes `market_price_ticks`, and replaces `applyAmbientMarketMotion`.
   - Rolls up 1-minute and 1-hour candles; keeps raw ticks for 7 days.
+  - 2026-10-25: done (`src/jobs/engine-tick.ts`, migration 017).
+    - Candles come from a trigger on every tick insert, so they're never behind.
+    - The 7-day purge covers engine ticks only; trade and IPO ticks stay.
+    - The tick waits until trading has opened (3 listed).
+    - Base vol is still 2% (open question 12).
 - [ ] **Market hours** per exchange timezone: queue rulings while CLOSED and apply them as one opening gap at pre-market.
 - [ ] **Halts**: single-stock limit up/down (10% in 5 minutes → 5-minute halt), news halts, the market-wide breaker (−7% → 15 min; −20% → closed until the next open).
 - [ ] **Event pipeline**:

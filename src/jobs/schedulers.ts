@@ -1,9 +1,9 @@
-import { randomInt } from "node:crypto";
 import { Decimal } from "decimal.js";
 import { pool, one, withTransaction } from "../db.js";
 import { accounts, postLedgerTransaction } from "../core/ledger.js";
 import { auraComposite, marketIndex, quoteTrade } from "../core/market.js";
 import { weeklyPayoutDue } from "../core/market-hours.js";
+import { engineTick, purgeOldEngineTicks } from "./engine-tick.js";
 import { resolveExpiredAuraFarming } from "../services/aura-farming-service.js";
 import { processOpenLimitOrders } from "../services/limit-order-service.js";
 import { terminateOpenLimitOrders } from "../services/limit-order-lifecycle.js";
@@ -205,41 +205,6 @@ export async function liquidateUnsafeShorts(): Promise<void> {
   }
 }
 
-export async function applyAmbientMarketMotion(exchangeId: string): Promise<void> {
-  await withTransaction(async (client) => {
-    const markets = await client.query<{
-      id: string; season_id: string; stock_id: string; share_reserve: string; credit_reserve: string;
-      organic_price: string; ambient_deviation: string;
-    }>(
-      `SELECT mp.id,mp.season_id,mp.stock_id,mp.share_reserve::text,mp.credit_reserve::text,
-              mp.organic_price::text,mp.ambient_deviation::text
-         FROM market_pools mp JOIN seasons s ON s.id=mp.season_id AND s.status='ACTIVE'
-        WHERE mp.exchange_id=$1 AND (mp.halted_until IS NULL OR mp.halted_until<=now())
-        ORDER BY mp.id FOR UPDATE OF mp`,
-      [exchangeId]
-    );
-    for (const market of markets.rows) {
-      const noise = new Decimal(randomInt(-1800, 1801)).div(1_000_000);
-      const randomWalk = new Decimal(market.ambient_deviation).plus(noise);
-      const deviation = Decimal.max("-0.03", Decimal.min("0.03", randomWalk));
-      const targetPrice = new Decimal(market.organic_price).mul(deviation.plus(1));
-      const invariant = new Decimal(market.share_reserve).mul(market.credit_reserve);
-      const nextShares = invariant.div(targetPrice).sqrt();
-      const nextCredits = invariant.mul(targetPrice).sqrt();
-      await client.query(
-        `UPDATE market_pools SET share_reserve=$1,credit_reserve=$2,ambient_deviation=$3,updated_at=now()
-          WHERE id=$4`,
-        [nextShares.toFixed(8),nextCredits.toFixed(8),deviation.toFixed(8),market.id]
-      );
-      await client.query(
-        `INSERT INTO market_price_ticks(season_id,stock_id,price,cause,is_synthetic)
-         VALUES ($1,$2,$3,'AMBIENT',true)`,
-        [market.season_id,market.stock_id,targetPrice.toFixed(8)]
-      );
-    }
-  });
-}
-
 export async function snapshotIndices(exchangeId: string): Promise<void> {
   await withTransaction(async (client) => {
     const season = await activeSeason(client, exchangeId);
@@ -341,6 +306,7 @@ export async function runServerSchedulers(now = Date.now()): Promise<void> {
   await runOnce(`aura-farming:${minuteKey}`, resolveExpiredAuraFarming);
   await runOnce(`option-settlement:${minuteKey}`, settleExpiredOptions);
   await runOnce(`idempotency-purge:${hourKey}`, async () => { await purgeExpiredKeys(pool); });
+  await runOnce(`engine-tick-purge:${hourKey}`, async () => { await purgeOldEngineTicks(); });
   await runOnce(`scheduled-runs-purge:${hourKey}`, async () => {
     await pool.query("DELETE FROM scheduled_runs WHERE completed_at < now() - interval '7 days'");
   });
@@ -353,7 +319,7 @@ export async function runExchangeSchedulers(exchange: ExchangeClock, now = new D
   const fiveMinuteKey = Math.floor(now.getTime() / 300_000);
   const motionKey = Math.floor(now.getTime() / 15_000);
   const key = (name: string, period: string | number) => `${name}:${exchange.id}:${period}`;
-  await runOnce(key("ambient-motion", motionKey), () => applyAmbientMarketMotion(exchange.id));
+  await runOnce(key("engine-tick", motionKey), async () => { await engineTick(exchange.id, now); });
   await runOnce(key("indices", fiveMinuteKey), () => snapshotIndices(exchange.id));
   await runOnce(key("season-check", `${dateKey}:${parts.hour}`), () => closeExpiredSeason(exchange.id));
   if (!(await activeSeason(pool, exchange.id))) return;

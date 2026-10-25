@@ -2,9 +2,8 @@ import { Decimal } from "decimal.js";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { pool } from "../../src/db.js";
 import { accountBalance, accounts } from "../../src/core/ledger.js";
-import {
-  applyAmbientMarketMotion, closeExpiredSeason, grantAllowance, runExchangeSchedulers, snapshotIndices, zonedParts
-} from "../../src/jobs/schedulers.js";
+import { engineTick } from "../../src/jobs/engine-tick.js";
+import { closeExpiredSeason, grantAllowance, runExchangeSchedulers, snapshotIndices, zonedParts } from "../../src/jobs/schedulers.js";
 import { activeSeason } from "../../src/services/exchange-service.js";
 import { addListedMember, createExchange } from "../support/fixtures.js";
 
@@ -47,10 +46,14 @@ describe("per-exchange scheduled jobs", () => {
     expect((await cash(b, 0)).toFixed(2)).toBe("10000.00");
   });
 
-  it("moves only the exchange's own pools, keeping each pool's constant product", async () => {
+  it("ticks only the exchange's own pools, keeping each pool's constant product", async () => {
+    await pool.query("UPDATE exchanges SET min_listings_to_open=1 WHERE id IN ($1,$2)", [a.exchangeId, b.exchangeId]);
+    const noonInNewYork = new Date("2026-10-24T16:00:00Z");
+    await engineTick(a.exchangeId, noonInNewYork);
     const before = await reserves(b);
     const aBefore = await reserves(a);
-    await applyAmbientMarketMotion(a.exchangeId);
+    expect((await engineTick(a.exchangeId, new Date(noonInNewYork.getTime() + 15_000))).ticked).toBe(2);
+    expect(await reserves(a)).not.toEqual(aBefore);
     expect(await reserves(b)).toEqual(before);
     for (const [index, row] of (await reserves(a)).entries()) {
       const k = new Decimal(row.share_reserve).mul(row.credit_reserve);

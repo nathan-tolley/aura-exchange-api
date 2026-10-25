@@ -420,6 +420,12 @@ Plumbing decisions that are mine to make. Game rules go to `DECISIONS.md` instea
   - The weekly payout (allowance and dividends) has one schedule, `WEEKLY_PAYOUT` in `src/core/market-hours.ts`: the worker asks `weeklyPayoutDue`, and `nextStimulusAt` comes from `nextWeeklyPayoutAt`, which converts the local Monday 9 am exactly, across clock changes. Between 9:00 and the worker's first loop after it, `nextStimulusAt` already says next week.
   - Refusals carry their receipt through `receipt()` in `order-checks.ts`, the same numbers `POST /quotes` would have returned. `ORDER_TOO_LARGE` stays unpriced: `quoteTrade` refuses past 10% of the pool.
   - `Position.liquidation` is `null` and `Event.denialPenaltyPct` isn't served yet; both get filled in Phase 1.
+- 2026-10-25: **the engine tick** (Phase 1, done as NOTES.md → Plan for Phase 1 → engine tick says).
+  - `engineTick(exchangeId, now)` returns how many pools it moved, or why it skipped (`CLOSED`, `TRADING_NOT_OPEN`, `LOCKED`).
+  - `runExchangeSchedulers` runs it under the 15 s `engine-tick:<exchange>:<bucket>` key; the hourly `engine-tick-purge` key runs the purge.
+  - The console's Default exchange only moves once it has 3 listings, like every other exchange. Ambient motion used to move it regardless.
+  - If trading closes again after it opened (a delisting drops below 3), the pools keep their old clock. The catch-up tick when trading reopens then covers all the open time in between: a bigger move, once. That's rare; it's fine.
+  - The tick and trades still race the way ambient motion did: every tick moves the reserves, so a quote that spans a tick comes back `QUOTE_STALE` and the app requotes (W06).
 - 2026-10-25: **CORS on `/v1`** (app contract request #10, `src/v1/cors.ts`). It's hand-written rather than `@fastify/cors`, to avoid a dependency for about 40 lines. An exact allow-list comes from `CORS_ORIGINS`, validated at startup. The preflight hook is the first `/v1` hook, so preflights never reach the version gate, maintenance or the bearer guard. `onSend` adds the headers to every `/v1` reply, including the error handler's. It overrides helmet's `Cross-Origin-Resource-Policy: same-origin` only for allowed origins. `/api` and the console are untouched.
 - 2026-10-24: **two more existing bugs fixed** (both on the friend's `master`):
   - The season-close standings query passed one parameter as `$1::text` and compared it with a uuid. Postgres rejects that (`uuid = text`), so seasons never closed and `pilot-reset` would time out.

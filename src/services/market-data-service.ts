@@ -10,6 +10,8 @@ export const PENNY_PRICE = new Decimal(5);
 /** The flat daily borrow fee the worker charges today (0.1%); the Fed and hard-to-borrow ramp come later. */
 export const BORROW_FEE_DAILY = new Decimal("0.001");
 export const SPARKLINE_POINTS = 48;
+/** Candle buckets are UTC, on the same fixed origin the candle trigger uses (db/migrations/017_engine_tick.sql). */
+const UTC_ORIGIN = "TIMESTAMPTZ '2000-01-01 00:00:00+00'";
 
 export interface ListingMarketRow {
   id: string;
@@ -69,11 +71,11 @@ export function badgesOf(row: ListingMarketRow): string[] {
 /** Up to 48 half-hour points over the last 24 hours (the last price in each), ending at the current price. */
 export async function sparklines(db: Db, seasonId: string, rows: ListingMarketRow[]): Promise<Map<string, Decimal[]>> {
   const result = await db.query<{ stock_id: string; price: string }>(
-    `SELECT stock_id, (array_agg(price ORDER BY created_at DESC, id DESC))[1]::text AS price
-       FROM market_price_ticks
-      WHERE season_id=$1 AND stock_id = ANY($2::uuid[]) AND created_at > now() - interval '24 hours'
-      GROUP BY stock_id, date_bin('30 minutes', created_at, TIMESTAMPTZ '2000-01-01 00:00:00+00')
-      ORDER BY stock_id, date_bin('30 minutes', created_at, TIMESTAMPTZ '2000-01-01 00:00:00+00')`,
+    `SELECT stock_id, (array_agg(c ORDER BY t DESC))[1]::text AS price
+       FROM candles_1m
+      WHERE season_id=$1 AND stock_id = ANY($2::uuid[]) AND c_at > now() - interval '24 hours'
+      GROUP BY stock_id, date_bin('30 minutes', t, ${UTC_ORIGIN})
+      ORDER BY stock_id, date_bin('30 minutes', t, ${UTC_ORIGIN})`,
     [seasonId, rows.map((row) => row.id)]
   );
   const lines = new Map<string, Decimal[]>(rows.map((row) => [row.id, []]));
@@ -107,10 +109,10 @@ export interface ListingStats {
 
 export async function listingStats(db: Db, seasonId: string, listingId: string): Promise<ListingStats> {
   const result = await db.query<ListingStats>(
-    `SELECT (SELECT MAX(price)::text FROM market_price_ticks WHERE season_id=$1 AND stock_id=$2 AND created_at > now()-interval '24 hours') AS day_high,
-            (SELECT MIN(price)::text FROM market_price_ticks WHERE season_id=$1 AND stock_id=$2 AND created_at > now()-interval '24 hours') AS day_low,
-            (SELECT MAX(price)::text FROM market_price_ticks WHERE season_id=$1 AND stock_id=$2) AS season_high,
-            (SELECT MIN(price)::text FROM market_price_ticks WHERE season_id=$1 AND stock_id=$2) AS season_low,
+    `SELECT (SELECT MAX(h)::text FROM candles_1m WHERE season_id=$1 AND stock_id=$2 AND c_at > now()-interval '24 hours') AS day_high,
+            (SELECT MIN(l)::text FROM candles_1m WHERE season_id=$1 AND stock_id=$2 AND c_at > now()-interval '24 hours') AS day_low,
+            (SELECT MAX(h)::text FROM candles_1h WHERE season_id=$1 AND stock_id=$2) AS season_high,
+            (SELECT MIN(l)::text FROM candles_1h WHERE season_id=$1 AND stock_id=$2) AS season_low,
             (SELECT COALESCE(SUM(quantity),0)::text FROM trades WHERE season_id=$1 AND stock_id=$2 AND created_at > now()-interval '24 hours') AS volume,
             (SELECT MAX(created_at) FROM trades WHERE season_id=$1 AND stock_id=$2) AS last_trade_at`,
     [seasonId, listingId]
@@ -120,11 +122,12 @@ export async function listingStats(db: Db, seasonId: string, listingId: string):
 
 export type CandleRange = "1D" | "1W" | "1M" | "SEASON";
 
-const RANGES: Record<CandleRange, { interval: "5m" | "1h" | "1d"; bucket: string; window: string | null }> = {
-  "1D": { interval: "5m", bucket: "5 minutes", window: "24 hours" },
-  "1W": { interval: "1h", bucket: "1 hour", window: "7 days" },
-  "1M": { interval: "1d", bucket: "1 day", window: "30 days" },
-  SEASON: { interval: "1d", bucket: "1 day", window: null }
+/** Each range rolls up the finest stored candles that cover it: 1-minute candles for a day, 1-hour ones beyond. */
+const RANGES: Record<CandleRange, { interval: "5m" | "1h" | "1d"; bucket: string; window: string | null; source: "candles_1m" | "candles_1h" }> = {
+  "1D": { interval: "5m", bucket: "5 minutes", window: "24 hours", source: "candles_1m" },
+  "1W": { interval: "1h", bucket: "1 hour", window: "7 days", source: "candles_1h" },
+  "1M": { interval: "1d", bucket: "1 day", window: "30 days", source: "candles_1h" },
+  SEASON: { interval: "1d", bucket: "1 day", window: null, source: "candles_1h" }
 };
 
 export interface CandleRow {
@@ -136,19 +139,17 @@ export interface CandleRow {
   v: string;
 }
 
-/** OHLC from the price ticks and volume from the trades, in UTC buckets; empty buckets are left out. */
+/** OHLC rolled up from the stored candles and volume from the trades, in UTC buckets; empty buckets are left out. */
 export async function candles(db: Db, seasonId: string, listingId: string, range: CandleRange): Promise<{ interval: string; rows: CandleRow[] }> {
   const spec = RANGES[range];
   const since = spec.window ? `now() - interval '${spec.window}'` : "'-infinity'::timestamptz";
-  const origin = "TIMESTAMPTZ '2000-01-01 00:00:00+00'";
   const result = await db.query<CandleRow>(
     `WITH prices AS (
-       SELECT date_bin($3::interval, created_at, ${origin}) AS t,
-              (array_agg(price ORDER BY created_at, id))[1] AS o, MAX(price) AS h, MIN(price) AS l,
-              (array_agg(price ORDER BY created_at DESC, id DESC))[1] AS c
-         FROM market_price_ticks WHERE season_id=$1 AND stock_id=$2 AND created_at >= ${since} GROUP BY 1
+       SELECT date_bin($3::interval, t, ${UTC_ORIGIN}) AS t,
+              (array_agg(o ORDER BY t))[1] AS o, MAX(h) AS h, MIN(l) AS l, (array_agg(c ORDER BY t DESC))[1] AS c
+         FROM ${spec.source} WHERE season_id=$1 AND stock_id=$2 AND c_at >= ${since} GROUP BY 1
      ), volume AS (
-       SELECT date_bin($3::interval, created_at, ${origin}) AS t, SUM(quantity) AS v
+       SELECT date_bin($3::interval, created_at, ${UTC_ORIGIN}) AS t, SUM(quantity) AS v
          FROM trades WHERE season_id=$1 AND stock_id=$2 AND created_at >= ${since} GROUP BY 1
      )
      SELECT prices.t, prices.o::text, prices.h::text, prices.l::text, prices.c::text, COALESCE(volume.v,0)::text AS v

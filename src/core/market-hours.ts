@@ -83,6 +83,25 @@ export function marketSession(hours: MarketHours, timeZone: string, now: Date): 
   return { state: "CLOSED", nextChangeAt: opensAt, opensAt };
 }
 
+/** Open-market seconds in one trading day: PRE + OPEN + AFTER (19 h with the default hours). */
+export function tradingDaySeconds(hours: MarketHours): number {
+  return offsets(hours).afterClose * 60;
+}
+
+/** Seconds between two instants that fall in PRE, OPEN or AFTER: the time the engine's noise, drift and reversion run on. */
+export function openSecondsBetween(hours: MarketHours, timeZone: string, from: Date, to: Date): number {
+  let total = 0;
+  let at = from;
+  while (at < to) {
+    const session = marketSession(hours, timeZone, at);
+    const end = session.nextChangeAt < to ? session.nextChangeAt : to;
+    if (end <= at) break;
+    if (session.state !== "CLOSED") total += (end.getTime() - at.getTime()) / 1000;
+    at = end;
+  }
+  return total;
+}
+
 /** PLAN.md → Economy: the weekly allowance (the "stimulus check") and dividends pay on Mondays from 9 am, local time. */
 export const WEEKLY_PAYOUT = { weekday: 1, hour: 9 } as const;
 

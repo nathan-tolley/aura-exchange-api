@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_HOURS, isValidTimeZone, marketSession, nextWeeklyPayoutAt, validateHours, weeklyPayoutDue } from "../src/core/market-hours.js";
+import {
+  DEFAULT_HOURS, isValidTimeZone, marketSession, nextWeeklyPayoutAt, openSecondsBetween, tradingDaySeconds, validateHours, weeklyPayoutDue
+} from "../src/core/market-hours.js";
 
 const NY = "America/New_York";
 const at = (iso: string) => marketSession(DEFAULT_HOURS, NY, new Date(iso));
@@ -36,6 +38,22 @@ describe("market sessions (default hours, New York, EDT = UTC−4)", () => {
     expect(validateHours({ preOpen: "07:00", open: "09:00", close: "22:00", afterClose: "07:00" })).toBe(true);
     expect(isValidTimeZone("America/New_York")).toBe(true);
     expect(isValidTimeZone("Mars/Olympus_Mons")).toBe(false);
+  });
+});
+
+describe("open-market time, for the engine", () => {
+  it("is 19 hours a day with the default hours", () => {
+    expect(tradingDaySeconds(DEFAULT_HOURS)).toBe(19 * 3600);
+  });
+
+  it("counts PRE, OPEN and AFTER but not the closed night", () => {
+    const open = (from: string, to: string) => openSecondsBetween(DEFAULT_HOURS, NY, new Date(from), new Date(to));
+    expect(open("2026-10-24T16:00:00Z", "2026-10-24T16:00:15Z")).toBe(15);
+    // 1:59 am to 7:00:15 am: a minute of after-hours, the closed night, 15 s of pre-market.
+    expect(open("2026-10-25T05:59:00Z", "2026-10-25T11:00:15Z")).toBe(75);
+    // A whole day from noon to noon is one trading day.
+    expect(open("2026-10-24T16:00:00Z", "2026-10-25T16:00:00Z")).toBe(19 * 3600);
+    expect(open("2026-10-25T07:00:00Z", "2026-10-25T10:00:00Z")).toBe(0);
   });
 });
 
