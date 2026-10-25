@@ -6,6 +6,7 @@ import { registerAuthRoutes } from "./auth-routes.js";
 import { registerBearerAuth } from "./bearer.js";
 import { registerExchangeRoutes } from "./exchange-routes.js";
 import { registerInviteRoutes } from "./invite-routes.js";
+import { registerMarketRoutes } from "./market-routes.js";
 import { registerIdempotency } from "./idempotency.js";
 import { registerMeRoutes } from "./me-routes.js";
 import { isoTime } from "./serialize.js";
@@ -73,5 +74,6 @@ export async function registerV1(app: FastifyInstance, options: V1Options = defa
     await registerMeRoutes(v1);
     await registerExchangeRoutes(v1);
     await registerInviteRoutes(v1);
+    await registerMarketRoutes(v1, { now: options.now });
   }, { prefix: V1_PREFIX });
 }
