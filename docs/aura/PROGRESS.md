@@ -12,7 +12,6 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - Uncommitted work: none
 - Waiting on Nathan:
   - **Spec draft.7: tell the app session to sync** `api/openapi.yaml` and API-CONTRACT.md (one rename for it: `feeRatePct` → `feeRate` in the liquidation model).
-  - **Push?** Local `aura-v1` is ahead of `origin/aura-v1` (`702a9f2`): the engine-tick plan, the engine tick, and this deploy log.
   - **Merge `origin/master` into `aura-v1`?** karkys pushed `deeaa37` "Add casino, Swagger docs, and claim recovery" on 2026-10-25. It's not merged yet; CLAUDE.md asks for regular merges.
   - Sign in from the app's dev build against the live URL (Gate 0, part 2).
   - DECISIONS.md open question 12: base daily volatility 2% → 1.1%, so the simulator lands near 60/25/15. The engine default stays at 2% until he agrees.
@@ -60,3 +59,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-25 · push · With Nathan's OK: pushed `aura-v1` to `origin` as a fast-forward from `192fa15`; this commit is the new tip. No force, nothing to `master`. The fetch brought `origin/master` to `deeaa37` (karkys: casino, Swagger docs, claim recovery), which isn't merged.
 - 2026-10-25 · Phase 1 · Engine tick: migration 017 (engine state per pool, `listings.personality`, `ENGINE`/`NEWS` tick causes with `detail`, `candles_1m`/`candles_1h` kept by a trigger and backfilled), `src/jobs/engine-tick.ts` (15 s, PRE/OPEN/AFTER, once trading has opened, advisory lock, seeded replay, catch-up after halts and overnight), hourly purge of 7-day-old engine ticks, `/v1` charts and highs/lows from candles, ambient motion retired. Base vol still 2%. 193 tests green. **Engine tick ticked.**
 - 2026-10-25 · deploy · With Nathan's OK: deployed `8bd3fee` (draft.7, CORS, the engine tick) to the box. First a `pg_dump` to `~/aura-exchange-backups/before-8bd3fee-20261025T232549Z.sql.gz` on the box, then `CORS_ORIGINS=http://localhost:5555` added to its `.env` (old copy `.env.before-cors`). Migration 017 applied; app and worker up with 0 restarts. The engine runs every 15 s and skips, because the box's only exchange (Default) has no listings yet. `pnpm smoke` passes. CORS from `http://localhost:5555` verified from outside (preflight 204, headers on 200 and 401, nothing for other origins). `<other-site>` still 200.
+- 2026-10-25 · push · With Nathan's OK: pushed `aura-v1` to `origin` as a fast-forward from `702a9f2`; this commit is the new tip. No force, nothing to `master` (still `deeaa37`, not merged).
