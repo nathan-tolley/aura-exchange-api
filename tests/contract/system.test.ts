@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../src/app.js";
@@ -78,5 +80,28 @@ describe("error contract", () => {
   it("knows exactly the error codes the spec lists", () => {
     const specCodes = (spec.components.schemas.ErrorCode as { enum: string[] }).enum;
     expect(Object.keys(errorCodes).sort()).toEqual([...specCodes].sort());
+  });
+
+  it("names one example per error code, so Prism can serve each with Prefer: example=CODE", () => {
+    // The params each code carries, from the error table in API-CONTRACT.md (the app copies its fixtures from it).
+    const table = new Map<string, string[]>();
+    for (const line of readFileSync(path.resolve("docs/aura/API-CONTRACT.md"), "utf8").split("\n")) {
+      const row = /^\| (\d{3}) \| `([A-Z_]+)` \|([^|]*)\|/.exec(line);
+      if (row) table.set(row[2]!, [...row[3]!.matchAll(/`(\w+)`/g)].map((match) => match[1]!).sort());
+    }
+    const examplesOf = (status: number) =>
+      ((spec.components.responses[`E${status}`]?.content as Record<string, { examples?: Record<string, { value: unknown }> }> | undefined)
+        ?.["application/json"]?.examples ?? {});
+
+    for (const [code, defaults] of Object.entries(errorCodes)) {
+      const example = examplesOf(defaults.status)[code];
+      expect(example, `E${defaults.status} has no example named ${code}`).toBeDefined();
+      expectSchema("Error", example!.value);
+      const error = (example!.value as { error: { code: string; params: Record<string, string>; retryable: boolean; action: string } }).error;
+      expect({ code: error.code, retryable: error.retryable, action: error.action }).toEqual({ code, retryable: defaults.retryable, action: defaults.action });
+      expect(Object.keys(error.params).sort(), `${code} params`).toEqual(table.get(code));
+    }
+    const named = [400, 401, 403, 404, 409, 422, 426, 429, 500, 503].flatMap((status) => Object.keys(examplesOf(status)));
+    expect(named.sort()).toEqual(Object.keys(errorCodes).sort());
   });
 });

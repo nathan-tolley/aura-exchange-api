@@ -2,7 +2,7 @@
 openapi: 3.1.0
 info:
   title: Aura Exchange API
-  version: 1.0.0-draft.5
+  version: 1.0.0-draft.6
   description: The v1 contract between the iPhone app and the server. Rules that apply everywhere (money as strings, freshness, errors, statuses,
     realtime, idempotency) are in API-CONTRACT.md. Every operation is tagged x-phase.
 servers:
@@ -2186,60 +2186,385 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          examples:
+            VALIDATION:
+              summary: A field failed validation
+              value:
+                error:
+                  code: VALIDATION
+                  message: Quantity must be positive
+                  params:
+                    field: quantity
+                    rule: positive
+                  retryable: false
+                  action: NONE
     E401:
       description: Not signed in or token expired
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          examples:
+            AUTH_EXPIRED:
+              summary: Missing, invalid or expired access token
+              value:
+                error:
+                  code: AUTH_EXPIRED
+                  message: The access token is invalid or expired
+                  params: {}
+                  retryable: false
+                  action: SIGN_IN
+            LOGIN_CODE_INVALID:
+              summary: Wrong sign-in code
+              value:
+                error:
+                  code: LOGIN_CODE_INVALID
+                  message: That code is not right
+                  params:
+                    attemptsLeft: '3'
+                  retryable: false
+                  action: NONE
+            LOGIN_CODE_EXPIRED:
+              summary: Sign-in code expired, superseded or out of tries
+              value:
+                error:
+                  code: LOGIN_CODE_EXPIRED
+                  message: This code has expired or used up its tries
+                  params: {}
+                  retryable: false
+                  action: NONE
     E403:
       description: Not allowed
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          examples:
+            FORBIDDEN:
+              summary: The caller's role doesn't allow this
+              value:
+                error:
+                  code: FORBIDDEN
+                  message: Your role on this exchange does not allow this
+                  params: {}
+                  retryable: false
+                  action: NONE
+            NOT_A_MEMBER:
+              summary: Not a member of this exchange
+              value:
+                error:
+                  code: NOT_A_MEMBER
+                  message: You are not a member of this exchange
+                  params:
+                    exchangeId: 3f2b8c1e-6d4a-4e9b-9a7c-1b2d3e4f5a6b
+                  retryable: false
+                  action: NONE
+            SELF_TRADE:
+              summary: Trading your own listing
+              value:
+                error:
+                  code: SELF_TRADE
+                  message: You can't trade your own stock
+                  params:
+                    ticker: $NATE
+                  retryable: false
+                  action: NONE
     E404:
       description: Not found
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          examples:
+            NOT_FOUND:
+              summary: No such resource (or another exchange's)
+              value:
+                error:
+                  code: NOT_FOUND
+                  message: No such listing
+                  params:
+                    resource: listing
+                  retryable: false
+                  action: NONE
     E409:
       description: Conflict (stale quote, halted, closed, idempotency)
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          examples:
+            QUOTE_STALE:
+              summary: The quote is used, expired or its reserves moved
+              value:
+                error:
+                  code: QUOTE_STALE
+                  message: The price moved; get a new quote
+                  params:
+                    oldPrice: '124.10'
+                    newPrice: '126.42'
+                    changePct: '1.87'
+                  retryable: true
+                  action: REQUOTE
+            CONFLICT:
+              summary: Something changed underneath the request
+              value:
+                error:
+                  code: CONFLICT
+                  message: That value already exists
+                  params: {}
+                  retryable: false
+                  action: NONE
+            IDEMPOTENCY_MISMATCH:
+              summary: The key was used for a different request
+              value:
+                error:
+                  code: IDEMPOTENCY_MISMATCH
+                  message: This Idempotency-Key was already used for a different request
+                  params: {}
+                  retryable: false
+                  action: NONE
+            IDEMPOTENCY_IN_PROGRESS:
+              summary: The first request with this key is still running
+              value:
+                error:
+                  code: IDEMPOTENCY_IN_PROGRESS
+                  message: The first request with this Idempotency-Key is still running
+                  params: {}
+                  retryable: true
+                  action: RETRY
+            INVITE_EXPIRED:
+              summary: The invite has expired
+              value:
+                error:
+                  code: INVITE_EXPIRED
+                  message: This invite has expired
+                  params: {}
+                  retryable: false
+                  action: NONE
+            EXCHANGE_FULL:
+              summary: The exchange has no room
+              value:
+                error:
+                  code: EXCHANGE_FULL
+                  message: This exchange is full
+                  params:
+                    maxMembers: '20'
+                  retryable: false
+                  action: NONE
+            TICKER_TAKEN:
+              summary: The ticker was taken
+              value:
+                error:
+                  code: TICKER_TAKEN
+                  message: That ticker is taken
+                  params:
+                    ticker: $NATE
+                  retryable: false
+                  action: NONE
+            TRADING_NOT_OPEN:
+              summary: Not enough friends listed yet
+              value:
+                error:
+                  code: TRADING_NOT_OPEN
+                  message: Trading opens once enough members are listed
+                  params:
+                    listedCount: '2'
+                    minListingsToOpen: '3'
+                  retryable: false
+                  action: WAIT
+            LISTING_HALTED:
+              summary: Trading in this stock is halted
+              value:
+                error:
+                  code: LISTING_HALTED
+                  message: Trading in this stock is halted
+                  params:
+                    haltId: 9c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f
+                    resumesAt: '2026-10-24T13:26:00Z'
+                  retryable: false
+                  action: WAIT
+            MARKET_CLOSED:
+              summary: The market is closed
+              value:
+                error:
+                  code: MARKET_CLOSED
+                  message: The market is closed
+                  params:
+                    opensAt: '2026-10-25T13:30:00Z'
+                    queuedEvents: '2'
+                  retryable: false
+                  action: WAIT
+            ORDER_TYPE_NOT_ALLOWED:
+              summary: Market orders outside regular hours
+              value:
+                error:
+                  code: ORDER_TYPE_NOT_ALLOWED
+                  message: Only limit orders trade outside regular hours
+                  params:
+                    marketState: PRE
+                  retryable: false
+                  action: NONE
     E422:
       description: Rejected by a game rule
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          examples:
+            INSUFFICIENT_CASH:
+              summary: Not enough cash for this order
+              value:
+                error:
+                  code: INSUFFICIENT_CASH
+                  message: You need A$229.91 more
+                  params:
+                    needed: '2494.41'
+                    available: '2264.50'
+                    shortBy: '229.91'
+                    maxQuantity: '18'
+                  retryable: false
+                  action: REDUCE_QUANTITY
+            INSUFFICIENT_SHARES:
+              summary: Selling or covering more than you hold
+              value:
+                error:
+                  code: INSUFFICIENT_SHARES
+                  message: You don't have that many shares to sell
+                  params:
+                    available: '12.5'
+                  retryable: false
+                  action: REDUCE_QUANTITY
+            ORDER_TOO_LARGE:
+              summary: One order can take at most 10% of the pool
+              value:
+                error:
+                  code: ORDER_TOO_LARGE
+                  message: One order can take at most 10% of the pool
+                  params:
+                    maxQuantity: '400'
+                  retryable: false
+                  action: REDUCE_QUANTITY
+            SHORT_CAP:
+              summary: The short would pass a cap on your equity
+              value:
+                error:
+                  code: SHORT_CAP
+                  message: A short on one stock is capped at 20% of your equity
+                  params:
+                    maxQuantity: '15.2'
+                    capPct: '20.00'
+                  retryable: false
+                  action: REDUCE_QUANTITY
+            OPPOSITE_POSITION:
+              summary: Long and short on the same stock
+              value:
+                error:
+                  code: OPPOSITE_POSITION
+                  message: Cover your short before buying
+                  params:
+                    positionId: 5e6f7a8b-9c0d-4e1f-a2b3-c4d5e6f7a8b9
+                  retryable: false
+                  action: NONE
+            EQUITY_TOO_LOW:
+              summary: Equity under the minimum (Chapter 7 offer)
+              value:
+                error:
+                  code: EQUITY_TOO_LOW
+                  message: Your equity is below the minimum
+                  params:
+                    equity: '38.20'
+                    minimum: '100.00'
+                  retryable: false
+                  action: NONE
+            DAILY_FILING_LIMIT:
+              summary: Out of filings for today
+              value:
+                error:
+                  code: DAILY_FILING_LIMIT
+                  message: You've filed the most events allowed today
+                  params:
+                    limit: '10'
+                    resetsAt: '2026-10-25T04:00:00Z'
+                  retryable: false
+                  action: WAIT
+            UNSEND_EXPIRED:
+              summary: The 30-second unsend window has passed
+              value:
+                error:
+                  code: UNSEND_EXPIRED
+                  message: It's too late to unsend this event
+                  params: {}
+                  retryable: false
+                  action: NONE
     E426:
       description: App build too old (UPDATE_REQUIRED)
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          examples:
+            UPDATE_REQUIRED:
+              summary: The app build is below the server's minimum
+              value:
+                error:
+                  code: UPDATE_REQUIRED
+                  message: This app build is too old
+                  params:
+                    minBuild: '38'
+                  retryable: false
+                  action: UPDATE_APP
     E429:
       description: Rate limited
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          examples:
+            RATE_LIMITED:
+              summary: Too many requests
+              value:
+                error:
+                  code: RATE_LIMITED
+                  message: Too many requests
+                  params:
+                    retryAfterSeconds: '30'
+                  retryable: true
+                  action: WAIT
     E500:
       description: Server error
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          examples:
+            SERVER:
+              summary: Something went wrong on the server
+              value:
+                error:
+                  code: SERVER
+                  message: Something went wrong on the server
+                  params:
+                    reference: req-2f
+                  retryable: true
+                  action: RETRY
     E503:
       description: Maintenance
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          examples:
+            MAINTENANCE:
+              summary: The exchange is down for maintenance
+              value:
+                error:
+                  code: MAINTENANCE
+                  message: The exchange is down for maintenance
+                  params:
+                    until: '2026-10-24T14:00:00Z'
+                    reference: req-3a
+                  retryable: true
+                  action: RETRY
   schemas:
     MarketState:
       type: string

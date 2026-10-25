@@ -4,13 +4,15 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 
 ## Now
 - Step: 0.6 → price-engine simulator (`src/engine/`, `pnpm sim`)
-- State: not started (0.5 done)
+- State: not started (contract request #1 done, spec draft.6)
 - Next action: read PLAN.md → The price engine; write `src/engine/` pure and seeded (seeded RNG, m(d) curve with the table test, fair value B×H with a 3-day hype half-life, 40–120% gap + 45-minute drift, 2-day mean reversion, Student-t df 4 noise, volatility spike, re-solving reserves to a target price), then `scripts/simulate.ts`
 - Uncommitted work: none
 - Waiting on Nathan:
+  - Spec draft.6 (named error examples): tell the app session to sync `api/openapi.yaml` again.
   - Node 24 on the host? pnpm 11.25.0 needs Node ≥ 22.13; the host has 20.20.0. Checks run in a `node:24` container meanwhile (NOTES.md → Checks). Ask before changing the global Node.
   - The fork: is `karkys` OK with it? Nothing gets pushed until then.
   - DECISIONS.md open question 10: prediction markets and options (kept on `/api` only for now).
+  - DECISIONS.md open question 11: the exchange size cap (20 members per exchange, `settings.maxMembers`, for now).
 
 ## Log
 - 2026-10-24 · 0.1 · `git status` on `master`: clean (fresh clone, no `web/` changes). `master` already at `49a0eaf`. Created `aura-v1`.
@@ -36,3 +38,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-24 · 0.5 · `POST /quotes` and `POST /trades` (shared `executeTrade` with the console; typed rejections with `maxQuantity`; hours, halts and the 3-listing rule). 149 tests green.
 - 2026-10-24 · 0.5 · `GET /exchanges/{id}/portfolio` (net worth incl. reserved cash, season/day change, positions, resting orders). 153 tests green.
 - 2026-10-24 · 0.5 · Phase-0 coverage test and the Prism-parity shape check; spec draft.5. 154 tests green. **0.5 done.**
+- 2026-10-25 · contract request #1 · Named error examples on `E400`…`E503`, one per code (spec draft.6); a contract test keeps them equal to `errorCodes` and API-CONTRACT.md's params; checked against a real Prism mock. Added open question 11 to "Waiting on Nathan". 155 tests green.
