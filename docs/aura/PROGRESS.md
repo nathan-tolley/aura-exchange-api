@@ -6,11 +6,11 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - Step: Resend for sign-in codes (Nathan's top priority, 2026-10-28). Then: move to `nathan-tolley/aura-exchange-api`, then Phase 1 from market hours to realtime.
 - State: blocked on Nathan. The box runs `164835a` (Resend code in log mode, base vol 1.1%). Secrets audit done: clean (NOTES.md → Plan for the repo move).
 - Next action, once Nathan answers:
-  1. With his key in `~/aura-exchange/.env`: add `EMAIL_PROVIDER=resend` and `EMAIL_FROM=<his address>`, `docker compose up -d app worker` (with `COMPOSE_FILE=compose.yaml:compose.box.yaml`), then he signs in with his own email.
+  1. With his key in `~/aura-exchange/.env`: add `EMAIL_PROVIDER=resend` and `EMAIL_FROM=Aura Exchange <codes@securedesk.elicit-marketing.com>`, `docker compose up -d app worker` (with `COMPOSE_FILE=compose.yaml:compose.box.yaml`), then he signs in with his own email.
   2. The repo move (NOTES.md → Plan for the repo move), then Phase 1 → market hours.
 - Uncommitted work: none
 - Waiting on Nathan:
-  - The from address for sign-in codes, on his Resend-verified domain (`elicit-marketing.com` or a subdomain), and a yes once `RESEND_API_KEY=…` is in `~/aura-exchange/.env` on the box.
+  - A yes once `RESEND_API_KEY=…` is in `~/aura-exchange/.env` on the box (not there at 2026-10-28 20:50 UTC). The domain is `securedesk.elicit-marketing.com`; the sender will be `Aura Exchange <codes@securedesk.elicit-marketing.com>`.
   - Public repo: OK to publish the docs that name the SSH user `<user>`, `~/<other-stack>/deploy` and `<other-site>`, and the 46 commits authored with `nathantolley2008@gmail.com`? Or scrub first?
   - Sign in from the app's dev build against the live URL (Gate 0, part 2).
 
