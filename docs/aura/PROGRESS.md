@@ -3,17 +3,15 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: Resend for sign-in codes (Nathan's top priority, 2026-10-28). Then: move to `nathan-tolley/aura-exchange-api`, engine base vol 1.1%, then Phase 1 from market hours to realtime.
-- State: blocked on Nathan. Resend (`3ed16d8`) and base vol 1.1% (`a7b8537`) are committed and green (203 tests) but **not deployed**: the auto-mode permission classifier refused `bash scripts/deploy.sh`, standing OK or not. The box's database was backed up first (`~/aura-exchange-backups/before-a7b8537-20261028T203830Z.sql.gz`); the box is still on `8bd3fee`. Secrets audit done: clean (NOTES.md → Plan for the repo move).
+- Step: Resend for sign-in codes (Nathan's top priority, 2026-10-28). Then: move to `nathan-tolley/aura-exchange-api`, then Phase 1 from market hours to realtime.
+- State: blocked on Nathan. The box runs `164835a` (Resend code in log mode, base vol 1.1%). Secrets audit done: clean (NOTES.md → Plan for the repo move).
 - Next action, once Nathan answers:
-  1. Deploy `HEAD` (or he runs `bash scripts/deploy.sh` from Git Bash), then `pnpm smoke --base https://tae.app.elicit-marketing.com`.
-  2. With his key in `~/aura-exchange/.env`: add `EMAIL_PROVIDER=resend` and `EMAIL_FROM=<his address>`, `docker compose up -d app worker` (with `COMPOSE_FILE=compose.yaml:compose.box.yaml`), then he signs in with his own email.
-  3. The repo move (NOTES.md → Plan for the repo move), then Phase 1 → market hours.
+  1. With his key in `~/aura-exchange/.env`: add `EMAIL_PROVIDER=resend` and `EMAIL_FROM=<his address>`, `docker compose up -d app worker` (with `COMPOSE_FILE=compose.yaml:compose.box.yaml`), then he signs in with his own email.
+  2. The repo move (NOTES.md → Plan for the repo move), then Phase 1 → market hours.
 - Uncommitted work: none
 - Waiting on Nathan:
   - The from address for sign-in codes, on his Resend-verified domain (`elicit-marketing.com` or a subdomain), and a yes once `RESEND_API_KEY=…` is in `~/aura-exchange/.env` on the box.
-  - Deploying: allow `bash scripts/deploy.sh` for this session, or run it himself.
-  - Public repo: OK to publish the docs that name the SSH user `<user>`, `~/<other-stack>/deploy` and `<other-site>`, and the 46 commits authored with `nathantolley2008@gmail.com`? Or scrub/rewrite first?
+  - Public repo: OK to publish the docs that name the SSH user `<user>`, `~/<other-stack>/deploy` and `<other-site>`, and the 46 commits authored with `nathantolley2008@gmail.com`? Or scrub first?
   - Sign in from the app's dev build against the live URL (Gate 0, part 2).
 
 ## Log
@@ -60,3 +58,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-28 · Resend · `ResendEmailSender` behind `EmailSender` (`EMAIL_PROVIDER=log|resend`, `RESEND_API_KEY`, `EMAIL_FROM`; `log` stays the default). Plain text + simple HTML, code and 10-minute expiry, no exclamation marks. A refusal or timeout answers the retryable `500 SERVER` and logs the reason without the code; a refused code is withdrawn. Tested with a faked `fetch`. No spec change. 203 tests green.
 - 2026-10-28 · open question 12 · 1.1% is the engine's default base daily volatility (`DEFAULT_ENGINE_PARAMS`); the simulator drops its override. 203 tests green.
 - 2026-10-28 · repo move · Secrets audit of all 51 `aura-v1` commits and the tree: nothing real ever committed; the box's IP is only in the gitignored `deploy.local`. NOTES.md and PROGRESS.md name the SSH user, the box's other stack and its site; 46 commits carry Nathan's Gmail. Asked Nathan. Deploy of `a7b8537` refused by the permission classifier (DB backed up first; box still on `8bd3fee`).
+- 2026-10-28 · deploy · With Nathan's OK (he allowed the deploy script): deployed `164835a` (Resend in log mode, base vol 1.1%) after a `pg_dump` to `~/aura-exchange-backups/before-a7b8537-20261028T203830Z.sql.gz`. No migrations. App and worker up, 0 restarts, no errors; `pnpm smoke` passes; `<other-site>` still 200.
