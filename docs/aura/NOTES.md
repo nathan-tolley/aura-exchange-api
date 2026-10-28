@@ -1,6 +1,6 @@
 # Notes
 
-Working notes for the `aura-v1` branch: what the friend's code already does, how each piece maps to `/v1`, plumbing choices, and check results. Game rules live in `PLAN.md` and `DECISIONS.md`, not here.
+Working notes for this repo (`main` of `nathan-tolley/aura-exchange-api`; it was the `aura-v1` branch of the friend's repo until 2026-10-28): what the friend's code already does, how each piece maps to `/v1`, plumbing choices, and check results. Game rules live in `PLAN.md` and `DECISIONS.md`, not here.
 
 Verdicts used below:
 
@@ -333,7 +333,7 @@ Nathan's decision: fork off into a new **public** repo, `nathan-tolley/aura-exch
 - **Commit metadata:** 46 commits are authored as `Nathan Tolley <nathantolley2008@gmail.com>`; that address becomes public with the history. The friend's 5 use a GitHub noreply address. If Nathan's GitHub account blocks pushes that expose his private email, the push will be refused.
 - The docs also name local Windows paths (`C:\Users\natha\…`).
 
-**The move**, once Nathan has decided on the above:
+**The move** (done 2026-10-28; Nathan chose to scrub the docs and rewrite the history first, see below):
 
 1. `gh repo create nathan-tolley/aura-exchange-api --public`, then push `aura-v1` to it as `main`.
 2. Locally: rename `aura-v1` → `main`; `origin` becomes the new repo; the friend's repo becomes `upstream` with `git remote set-url --push upstream DISABLED`.

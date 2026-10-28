@@ -5,7 +5,7 @@ What's settled, what changed since the plan, and what's still open. When this fi
 ## The shape of the system (settled)
 
 - **Two separate projects, one contract.**
-  - **aura-api**: the cloud server. TypeScript, Fastify, PostgreSQL and a worker. It's a branch of the friend's repo.
+  - **aura-api**: the cloud server. TypeScript, Fastify, PostgreSQL and a worker. It started as the friend's repo and is now its own public repo, `nathan-tolley/aura-exchange-api` (2026-10-28).
   - **aura-exchange-app**: the iPhone app. Flutter, created from `flutter-ios-template`.
   - The app knows nothing about the server except the `/v1` HTTP + WebSocket contract in `openapi.yaml` and `API-CONTRACT.md`. It never reads the database and never shares code with the server.
 - **The API owns the contract.**

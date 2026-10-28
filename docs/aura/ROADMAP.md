@@ -1,6 +1,6 @@
 # API roadmap
 
-Work top to bottom. Tick a box only when its check passes and `pnpm check` is green. Phases and gates come from `PLAN.md` → Roadmap. The live state (current step, next action, open questions) is in `PROGRESS.md`.
+Work top to bottom, on `main` of `nathan-tolley/aura-exchange-api` (the steps below that mention `master` and `aura-v1` are from before the 2026-10-28 fork). Tick a box only when its check passes and `pnpm check` is green. Phases and gates come from `PLAN.md` → Roadmap. The live state (current step, next action, open questions) is in `PROGRESS.md`.
 
 ## Phase 0: fork and foundation
 

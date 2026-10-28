@@ -1,11 +1,14 @@
 # Progress
 
-The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
+The live log for this repo (`main`; the `aura-v1` branch until 2026-10-28; hashes from before the history rewrite are mapped in NOTES.md → History rewrite). See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: the repo move to `nathan-tolley/aura-exchange-api` (NOTES.md → Plan for the repo move). Then Phase 1 from market hours to realtime.
-- State: history rewritten without the box details (NOTES.md → History rewrite; the old → new hash map is there). The old history is only in the local branch `backup/aura-v1-before-rewrite`, never pushed.
-- Next action: `gh repo create nathan-tolley/aura-exchange-api --public`, push `aura-v1` as `main`, rewire the remotes, then delete `aura-v1` from the friend's repo.
+- Step: Phase 1 → market hours (next roadmap bullet). The repo move is done: `main` of `nathan-tolley/aura-exchange-api`.
+- State: in progress. Resend works end to end; the box runs Resend and base vol 1.1%.
+- Next action: plan "market hours" in NOTES.md before coding.
+  - A per-pool queue of news moves. A ruling that lands while CLOSED waits there, and the first tick in PRE applies the whole queue as one `applyNews` (an opening gap plus drift) and writes a `NEWS` tick. The event pipeline will feed the queue; tests feed it by hand.
+  - Move the `day_open_price` reset from midnight to pre-open, so `prevClose` is the last price before the overnight close.
+  - Make `MARKET_CLOSED.queuedEvents` real.
 - Uncommitted work: none
 - Waiting on Nathan:
   - Sign in from the app's dev build against the live URL (Gate 0, part 2). His first try never reached the box: no `/v1/auth/email/start` in the log, so that client points elsewhere (the Prism mock or a local server?).
@@ -59,3 +62,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-28 · Resend · Works end to end. Nathan's first try never reached the box (no request in the log). `POST /v1/auth/email/start` for his address on the live URL answered 204 with no failure logged, and the email from `codes@securedesk.elicit-marketing.com` landed in his Gmail inbox, not spam.
 - 2026-10-28 · repo move · Nathan: scrub the box details from the docs before the public push, keep the commit email. NOTES.md and PROGRESS.md now name no SSH user, other stack or site; the details are in the gitignored `box-notes.local`.
 - 2026-10-28 · repo move · With Nathan's OK: rewrote `aura-v1` so no commit names the box (`git filter-branch`; only NOTES.md and PROGRESS.md changed in any commit; final tree identical, `2b22257`). 21 commits got new hashes, mapped in NOTES.md → History rewrite. Old history kept locally as `backup/aura-v1-before-rewrite`.
+- 2026-10-28 · repo move · Created the public `nathan-tolley/aura-exchange-api` and pushed `aura-v1` as `main` (`4b27eaa`, every commit there). Local branch renamed to `main`, tracking `origin/main`; the friend's repo is `upstream` with pushing disabled. Deleted `aura-v1` from `karkys/Aura-Exchange` (his `master` untouched at `deeaa37`). CLAUDE.md, ROADMAP.md, NOTES.md and DECISIONS.md now say `main`, the new repo and no more merges. The box deploy ships `git archive` over SSH, so it needed no change.

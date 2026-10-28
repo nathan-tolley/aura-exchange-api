@@ -1,6 +1,6 @@
 # Aura Exchange API: instructions for Claude
 
-This repo is the **server** for Aura Exchange, a play-money social stock market where each friend is a listed stock and prices move on things that happen to them. It started as a friend's web app (`karkys/Aura-Exchange`). We are evolving it, on the branch `aura-v1`, into a multi-exchange cloud API for a separate Flutter iPhone app.
+This repo is the **server** for Aura Exchange, a play-money social stock market where each friend is a listed stock and prices move on things that happen to them. It started as a friend's web app (`karkys/Aura-Exchange`) and forked off on 2026-10-28 into its own public repo, `nathan-tolley/aura-exchange-api` (branch `main`). It's a multi-exchange cloud API for a separate Flutter iPhone app.
 
 ## Read these first (in `docs/aura/`)
 
@@ -33,7 +33,7 @@ Sessions can stop at any moment: usage limits, a crash, a closed laptop. Work so
 - **Small commits**, one roadmap sub-step each (smaller for a big one). Local commits are free; pushing still needs Nathan's OK.
 - **Every step is safe to repeat.** Check before you create: does the branch, migration, table, route or file already exist? If it does, verify it and move on.
 - **On start, and whenever you're asked to resume:**
-  1. Read `docs/aura/PROGRESS.md`. If it doesn't exist yet, you're still in 0.1: follow `KICKOFF-API.md` in the handoff, checking what's already done (branch `aura-v1`, the handoff commit) before each step.
+  1. Read `docs/aura/PROGRESS.md`. If it doesn't exist yet, you're still in 0.1: follow `KICKOFF-API.md` in the handoff, checking what's already done (the branch, the handoff commit) before each step.
   2. Run `git status`, `git branch --show-current` and `git log --oneline -10`.
   3. Compare them. Changes in the tree that "Now" doesn't explain are a half-finished step from a session that was cut off. Read the diff, then either finish it or `git stash push -u -m "interrupted: <what>"` and redo it cleanly. Never discard work.
   4. Re-run the last check (`pnpm check`) before building on top of it.
@@ -116,7 +116,9 @@ Mock the app's view of the API from the spec at any time with `npx @stoplight/pr
 
 ## Working rules
 
-- Work on `aura-v1`. Merge `origin/master` into it now and then, because the friend is still working there. Never force-push and never push to `master`. Before the first push to any remote, confirm with Nathan that the friend is OK with the fork (`DECISIONS.md` → open questions).
+- Work on `main`. `origin` is `nathan-tolley/aura-exchange-api` (public). Push there once `pnpm check` passes; that's a standing OK (`DECISIONS.md` → What sessions may do without asking).
+- The friend's repo is `upstream`, fetch-only (its push URL is `DISABLED`). We forked off on 2026-10-28: **never merge from it**, and never push to it.
+- Never force-push. The repo is public: nothing that names the deploy box (its IP, SSH user or other stacks) goes into a commit. Those live in the gitignored `deploy.local` and `box-notes.local`.
 - Small commits, one milestone step each, with messages that say what and why.
 - When the plan is silent or a number looks wrong, don't guess on game rules: write the question into `DECISIONS.md` under "Open questions" and pick the plan's proposed default. Plumbing choices are yours to make; note them in `docs/aura/NOTES.md`.
 - Keep `docs/aura/ROADMAP.md` checkboxes current. That file is how Nathan sees progress.
