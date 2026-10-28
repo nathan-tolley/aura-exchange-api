@@ -270,12 +270,12 @@ Rewritten 2026-10-25: Nathan chose his own Ubuntu 24.04 box at `tae.app.elicit-m
 
 **What Nathan does (I can't):** the DNS A record; allow inbound 80 and 443 in the cloud provider's firewall or security list; install the deploy key (the box takes keys only); install Docker if it isn't there and his user has no password-free `sudo`.
 
-**As deployed (2026-10-25).** The box already ran Nathan's `~/<other-stack>/deploy` stack (`<user>` app on `<other-site>`, Ollama, Caddy 2.8 on 80/443). So `compose.box.yaml` keeps our Caddy off and joins the API to `deploy_default` as `aura-exchange-api`. With Nathan's OK, `~/<other-stack>/deploy/Caddyfile` got one site block for `tae.app.elicit-marketing.com` → `aura-exchange-api:8787`, then `caddy reload`; `<other-site>` answered 200 before and after. The original Caddyfile is saved as `~/aura-exchange/Caddyfile.<other-stack>.before-aura`. The change shows as a local modification in the <other-stack> repo. To undo it: copy the backup back with `cat` (the file is a single-file bind mount, so keep the inode) and reload.
+**As deployed (2026-10-25).** The box already ran another of Nathan's Docker Compose stacks, with its own Caddy on 80/443. So `compose.box.yaml` keeps our Caddy off and joins the API to that stack's network (`EDGE_NETWORK`) as `aura-exchange-api`. With Nathan's OK, that Caddy's Caddyfile got one site block for `tae.app.elicit-marketing.com` → `aura-exchange-api:8787`, then `caddy reload`; the other stack's site answered 200 before and after. Where that stack lives, the Caddyfile backup and how to undo the change are in the gitignored `box-notes.local` on Nathan's PC, kept out of the public repo.
 
 Live at `https://tae.app.elicit-marketing.com` once DNS caught up: Caddy got the Let's Encrypt certificate on its next retry, and `pnpm smoke` passed. Sign-in codes are in the API's log until there's an email provider:
 
 ```bash
-ssh -i ~/.ssh/aura_deploy <user>@<box> "docker logs --since 15m aura-exchange-app-1 2>&1 | grep auth.login_code | tail -1"
+ssh -i ~/.ssh/aura_deploy "$DEPLOY_HOST" "docker logs --since 15m aura-exchange-app-1 2>&1 | grep auth.login_code | tail -1"
 ```
 
 **Later:** nightly `pg_dump` to a file outside the container plus a copy off the box (the friend's backup scripts are PowerShell for his home PC); an email provider; log rotation.
@@ -329,7 +329,7 @@ Nathan's decision: fork off into a new **public** repo, `nathan-tolley/aura-exch
 - **Nothing real was ever committed.** No `.env`, no `deploy.local`, no key files. No token-shaped strings either: OpenAI `sk-`, Resend `re_`, GitHub, AWS, private-key blocks, Slack, Google or JWTs. The only secret-like values are `.env.example` placeholders (`replace-with-…`), the code's development defaults (`development-only-…`, refused in production), the local dev database's `aura_dev_password`, and fake test keys (`re_test_key`, `re_x`).
 - `.gitignore` covers `.env`, `*.local` (so `deploy.local`), `backups/*`, `uploads/*` and `sim-out/`.
 - **The box's IP is in no committed file** (only in the gitignored `deploy.local`).
-- **What does name the box:** `docs/aura/NOTES.md` and `docs/aura/PROGRESS.md` (and their history) name the SSH user `<user>`, the deploy key's path `~/.ssh/aura_deploy`, the box's other stack `~/<other-stack>/deploy` and its site `<other-site>`, and the domain `tae.app.elicit-marketing.com`. That's Nathan's call for a public repo.
+- **What named the box:** `docs/aura/NOTES.md` and `docs/aura/PROGRESS.md` named the SSH user, the box's other stack and that stack's site. Nathan chose to scrub them from the docs (2026-10-28); they're in the gitignored `box-notes.local` now. The API's own domain, `tae.app.elicit-marketing.com`, stays: it's public anyway.
 - **Commit metadata:** 46 commits are authored as `Nathan Tolley <nathantolley2008@gmail.com>`; that address becomes public with the history. The friend's 5 use a GitHub noreply address. If Nathan's GitHub account blocks pushes that expose his private email, the push will be refused.
 - The docs also name local Windows paths (`C:\Users\natha\…`).
 
