@@ -3,22 +3,13 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: Phase 1 → market hours (next roadmap bullet). The engine tick is done. Phase 0 is done; the API is live at `https://tae.app.elicit-marketing.com/v1` (box `8bd3fee`: draft.7, CORS, the engine tick).
-- State: stopped at Nathan's request after the engine tick, then deployed it with his OK. Nathan said to leave the `origin/master` merge (`deeaa37`) for later.
-- Next action: plan "market hours" in NOTES.md before coding.
-  - A per-pool queue of news moves. A ruling that lands while CLOSED waits there, and the first tick in PRE applies the whole queue as one `applyNews` (an opening gap plus drift) and writes a `NEWS` tick. The event pipeline will feed the queue; tests feed it by hand.
-  - Move the `day_open_price` reset from midnight to pre-open, so `prevClose` is the last price before the overnight close.
-  - Make `MARKET_CLOSED.queuedEvents` real.
+- Step: Resend for sign-in codes (Nathan's top priority, 2026-10-28). Then: move to `nathan-tolley/aura-exchange-api`, engine base vol 1.1%, then Phase 1 from market hours to realtime.
+- State: in progress. Nathan answered every open question on 2026-10-28 (DECISIONS.md); `pnpm check` green (193 tests).
+- Next action: `ResendEmailSender` behind `EmailSender` (`src/services/email-sender.ts`), chosen by `EMAIL_PROVIDER=resend|log` with `RESEND_API_KEY` and `EMAIL_FROM`; plain-text + simple HTML; a Resend failure answers the contract's retryable error without logging the code. Tests fake the HTTP call.
 - Uncommitted work: none
 - Waiting on Nathan:
-  - **Spec draft.7: tell the app session to sync** `api/openapi.yaml` and API-CONTRACT.md (one rename for it: `feeRatePct` → `feeRate` in the liquidation model).
-  - **Merge `origin/master` into `aura-v1`?** karkys pushed `deeaa37` "Add casino, Swagger docs, and claim recovery" on 2026-10-25. It's not merged yet; CLAUDE.md asks for regular merges.
+  - The exact Resend-verified domain and the from address for sign-in codes (he verified one on `elicit-marketing.com`).
   - Sign in from the app's dev build against the live URL (Gate 0, part 2).
-  - DECISIONS.md open question 12: base daily volatility 2% → 1.1%, so the simulator lands near 60/25/15. The engine default stays at 2% until he agrees.
-  - Email provider for sign-in codes (open question 8): not needed for a test exchange (codes go to the host's log), needed before friends sign in.
-  - Node 24 on the host? pnpm 11.25.0 needs Node ≥ 22.13; the host has 20.20.0. Checks run in a `node:24` container meanwhile (NOTES.md → Checks). Ask before changing the global Node.
-  - DECISIONS.md open question 10: prediction markets and options (kept on `/api` only for now).
-  - DECISIONS.md open question 11: the exchange size cap (20 members per exchange, `settings.maxMembers`, for now).
 
 ## Log
 - 2026-10-24 · 0.1 · `git status` on `master`: clean (fresh clone, no `web/` changes). `master` already at `49a0eaf`. Created `aura-v1`.
@@ -60,3 +51,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-25 · Phase 1 · Engine tick: migration 017 (engine state per pool, `listings.personality`, `ENGINE`/`NEWS` tick causes with `detail`, `candles_1m`/`candles_1h` kept by a trigger and backfilled), `src/jobs/engine-tick.ts` (15 s, PRE/OPEN/AFTER, once trading has opened, advisory lock, seeded replay, catch-up after halts and overnight), hourly purge of 7-day-old engine ticks, `/v1` charts and highs/lows from candles, ambient motion retired. Base vol still 2%. 193 tests green. **Engine tick ticked.**
 - 2026-10-25 · deploy · With Nathan's OK: deployed `8bd3fee` (draft.7, CORS, the engine tick) to the box. First a `pg_dump` to `~/aura-exchange-backups/before-8bd3fee-20261025T232549Z.sql.gz` on the box, then `CORS_ORIGINS=http://localhost:5555` added to its `.env` (old copy `.env.before-cors`). Migration 017 applied; app and worker up with 0 restarts. The engine runs every 15 s and skips, because the box's only exchange (Default) has no listings yet. `pnpm smoke` passes. CORS from `http://localhost:5555` verified from outside (preflight 204, headers on 200 and 401, nothing for other origins). `<other-site>` still 200.
 - 2026-10-25 · push · With Nathan's OK: pushed `aura-v1` to `origin` as a fast-forward from `702a9f2`; this commit is the new tip. No force, nothing to `master` (still `deeaa37`, not merged).
+- 2026-10-28 · resume · Fresh session: tree clean at `0d57583`, `pnpm check` green (193 tests). Copied Nathan's 2026-10-28 answers into DECISIONS.md (open questions 2–6 and 8–12, the design-pass rules, the fork-off branching, what sessions may do without asking) and cleared them from "Waiting on Nathan".
