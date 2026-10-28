@@ -320,6 +320,27 @@ Written 2026-10-25, before starting. It replaces `applyAmbientMarketMotion` with
    - Exchanges stay isolated.
    - The `/v1` candle and market contract tests stay green.
 
+## Plan for the repo move (2026-10-28)
+
+Nathan's decision: fork off into a new **public** repo, `nathan-tolley/aura-exchange-api`, with `aura-v1` (all history) as its `main`.
+
+**Secrets audit, 2026-10-28, at `a7b8537`** (all 51 commits on `aura-v1` plus the working tree):
+
+- **Nothing real was ever committed.** No `.env`, no `deploy.local`, no key files. No token-shaped strings either: OpenAI `sk-`, Resend `re_`, GitHub, AWS, private-key blocks, Slack, Google or JWTs. The only secret-like values are `.env.example` placeholders (`replace-with-…`), the code's development defaults (`development-only-…`, refused in production), the local dev database's `aura_dev_password`, and fake test keys (`re_test_key`, `re_x`).
+- `.gitignore` covers `.env`, `*.local` (so `deploy.local`), `backups/*`, `uploads/*` and `sim-out/`.
+- **The box's IP is in no committed file** (only in the gitignored `deploy.local`).
+- **What does name the box:** `docs/aura/NOTES.md` and `docs/aura/PROGRESS.md` (and their history) name the SSH user `<user>`, the deploy key's path `~/.ssh/aura_deploy`, the box's other stack `~/<other-stack>/deploy` and its site `<other-site>`, and the domain `tae.app.elicit-marketing.com`. That's Nathan's call for a public repo.
+- **Commit metadata:** 46 commits are authored as `Nathan Tolley <nathantolley2008@gmail.com>`; that address becomes public with the history. The friend's 5 use a GitHub noreply address. If Nathan's GitHub account blocks pushes that expose his private email, the push will be refused.
+- The docs also name local Windows paths (`C:\Users\natha\…`).
+
+**The move**, once Nathan has decided on the above:
+
+1. `gh repo create nathan-tolley/aura-exchange-api --public`, then push `aura-v1` to it as `main`.
+2. Locally: rename `aura-v1` → `main`; `origin` becomes the new repo; the friend's repo becomes `upstream` with `git remote set-url --push upstream DISABLED`.
+3. Check the new `main` has every commit, then delete `aura-v1` from the friend's repo (`git push upstream --delete aura-v1`, approved). His `master` is never touched.
+4. The box deploy doesn't pull from git (`scripts/deploy.sh` ships `git archive HEAD` over SSH), so nothing changes there.
+5. CLAUDE.md, ROADMAP.md and this file: branch `main`, the new repo, no more `master` merges.
+
 ## Plumbing choices
 
 Plumbing decisions that are mine to make. Game rules go to `DECISIONS.md` instead.
