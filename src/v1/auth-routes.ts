@@ -2,8 +2,8 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { maybeOne, pool, withTransaction } from "../db.js";
 import { appError } from "../errors.js";
-import type { EmailSender } from "../services/email-sender.js";
-import { type AppUserRow, checkLoginCode, findOrCreateEmailUser, issueLoginCode, normalizeEmail } from "../services/login-code-service.js";
+import { EmailDeliveryError, type EmailSender } from "../services/email-sender.js";
+import { type AppUserRow, checkLoginCode, findOrCreateEmailUser, issueLoginCode, normalizeEmail, withdrawLoginCode } from "../services/login-code-service.js";
 import { issueTokenPair, revokeFamily, rotateRefreshToken } from "../services/token-service.js";
 import { serializeUser } from "./serialize.js";
 
@@ -30,7 +30,16 @@ export async function registerAuthRoutes(v1: FastifyInstance, options: AuthRoute
     if (!result.issued) {
       throw appError("RATE_LIMITED", { retryAfterSeconds: String(result.retryAfterSeconds) }, "Too many sign-in codes for this email; try again later");
     }
-    await options.emailSender.sendLoginCode(normalizeEmail(input.email), result.code);
+    const address = normalizeEmail(input.email);
+    try {
+      await options.emailSender.sendLoginCode(address, result.code);
+    } catch (error) {
+      // A refused email never arrives, so its code shouldn't use up the hourly limit. After a timeout it may still
+      // arrive, so that code stays valid. Never log the code; the address is cut to its domain.
+      if (error instanceof EmailDeliveryError && error.status !== undefined) await withdrawLoginCode(pool, result.id);
+      request.log.error({ err: error, emailDomain: address.split("@")[1], reference: request.id }, "auth.login_code_email_failed");
+      throw appError("SERVER", { reference: request.id }, "The sign-in email couldn't be sent; try again");
+    }
     return reply.code(204).send();
   });
 

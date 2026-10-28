@@ -4,8 +4,8 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 
 ## Now
 - Step: Resend for sign-in codes (Nathan's top priority, 2026-10-28). Then: move to `nathan-tolley/aura-exchange-api`, engine base vol 1.1%, then Phase 1 from market hours to realtime.
-- State: in progress. Nathan answered every open question on 2026-10-28 (DECISIONS.md); `pnpm check` green (193 tests).
-- Next action: `ResendEmailSender` behind `EmailSender` (`src/services/email-sender.ts`), chosen by `EMAIL_PROVIDER=resend|log` with `RESEND_API_KEY` and `EMAIL_FROM`; plain-text + simple HTML; a Resend failure answers the contract's retryable error without logging the code. Tests fake the HTTP call.
+- State: the code is done and committed (`EMAIL_PROVIDER=log|resend`, NOTES.md → Plumbing). The box still logs codes.
+- Next action: deploy it (the box keeps `EMAIL_PROVIDER` unset = `log`, so nothing changes yet). Once Nathan has put `RESEND_API_KEY` in `~/aura-exchange/.env` on the box and named the from address, add `EMAIL_PROVIDER=resend` and `EMAIL_FROM` there, recreate `app` and `worker`, and have him sign in with his own email. Meanwhile: the secrets audit for the repo move, and base vol 1.1%.
 - Uncommitted work: none
 - Waiting on Nathan:
   - The exact Resend-verified domain and the from address for sign-in codes (he verified one on `elicit-marketing.com`).
@@ -52,3 +52,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-25 · deploy · With Nathan's OK: deployed `8bd3fee` (draft.7, CORS, the engine tick) to the box. First a `pg_dump` to `~/aura-exchange-backups/before-8bd3fee-20261025T232549Z.sql.gz` on the box, then `CORS_ORIGINS=http://localhost:5555` added to its `.env` (old copy `.env.before-cors`). Migration 017 applied; app and worker up with 0 restarts. The engine runs every 15 s and skips, because the box's only exchange (Default) has no listings yet. `pnpm smoke` passes. CORS from `http://localhost:5555` verified from outside (preflight 204, headers on 200 and 401, nothing for other origins). `<other-site>` still 200.
 - 2026-10-25 · push · With Nathan's OK: pushed `aura-v1` to `origin` as a fast-forward from `702a9f2`; this commit is the new tip. No force, nothing to `master` (still `deeaa37`, not merged).
 - 2026-10-28 · resume · Fresh session: tree clean at `0d57583`, `pnpm check` green (193 tests). Copied Nathan's 2026-10-28 answers into DECISIONS.md (open questions 2–6 and 8–12, the design-pass rules, the fork-off branching, what sessions may do without asking) and cleared them from "Waiting on Nathan".
+- 2026-10-28 · Resend · `ResendEmailSender` behind `EmailSender` (`EMAIL_PROVIDER=log|resend`, `RESEND_API_KEY`, `EMAIL_FROM`; `log` stays the default). Plain text + simple HTML, code and 10-minute expiry, no exclamation marks. A refusal or timeout answers the retryable `500 SERVER` and logs the reason without the code; a refused code is withdrawn. Tested with a faked `fetch`. No spec change. 203 tests green.

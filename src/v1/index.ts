@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { config } from "../config.js";
 import { appError } from "../errors.js";
-import { LogEmailSender, type EmailSender } from "../services/email-sender.js";
+import { emailSenderFromConfig, type EmailSender } from "../services/email-sender.js";
 import { registerAuthRoutes } from "./auth-routes.js";
 import { registerBearerAuth } from "./bearer.js";
 import { registerCors } from "./cors.js";
@@ -24,7 +24,7 @@ export interface V1Options {
   minAppBuild: number;
   /** While in the future, every route but /health answers 503 MAINTENANCE. */
   maintenanceUntil?: Date;
-  /** Delivers sign-in codes; defaults to logging them (development). */
+  /** Delivers sign-in codes; defaults to what EMAIL_PROVIDER says (logging them in development). */
   emailSender?: EmailSender;
   /** Sign-in codes one IP may request per hour. */
   loginCodesPerIpPerHour: number;
@@ -77,7 +77,7 @@ export async function registerV1(app: FastifyInstance, options: V1Options = defa
 
     await registerSystemRoutes(v1, options);
     await registerAuthRoutes(v1, {
-      emailSender: options.emailSender ?? new LogEmailSender((fields, message) => v1.log.info(fields, message)),
+      emailSender: options.emailSender ?? emailSenderFromConfig(config, (fields, message) => v1.log.info(fields, message)),
       loginCodesPerIpPerHour: options.loginCodesPerIpPerHour
     });
     await registerMeRoutes(v1);

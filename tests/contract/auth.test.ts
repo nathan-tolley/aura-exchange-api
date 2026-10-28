@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../../src/app.js";
 import { pool } from "../../src/db.js";
-import type { EmailSender } from "../../src/services/email-sender.js";
+import { type EmailSender, ResendEmailSender } from "../../src/services/email-sender.js";
 import { signAccessToken } from "../../src/services/token-service.js";
 import { createExchange } from "../support/fixtures.js";
 import { expectResponseMatchesSpec } from "./openapi.js";
@@ -94,6 +94,67 @@ describe("POST /v1/auth/email/start", () => {
   it("is not blocked by the console's origin check", async () => {
     const response = await post("/v1/auth/email/start", { email: newEmail() }, { origin: "https://somewhere-else.example" });
     expect(response.statusCode).toBe(204);
+  });
+});
+
+describe("POST /v1/auth/email/start when the email can't be sent", () => {
+  /** An app whose sign-in emails go to a fake Resend, with every log line kept. */
+  async function appWithResend(fetch: typeof globalThis.fetch) {
+    const lines: string[] = [];
+    const failing = await buildApp({
+      logger: { level: "info", stream: { write: (line: string) => { lines.push(line); } } },
+      v1: { emailSender: new ResendEmailSender({ apiKey: "re_test_key", from: "Aura Exchange <codes@example.com>", fetch }), loginCodesPerIpPerHour: 1000 }
+    });
+    return { failing, logs: () => lines.join("\n") };
+  }
+  const codeIn = (init: RequestInit | undefined) => (JSON.parse(String(init?.body)) as { text: string }).text.match(/\d{6}/)![0];
+  const mentions = (text: string, code: string) => new RegExp(`(?<!\\d)${code}(?!\\d)`).test(text);
+  const start = (target: FastifyInstance, email: string) =>
+    target.inject({ method: "POST", url: "/v1/auth/email/start", payload: { email }, headers: { "idempotency-key": randomUUID() } });
+
+  it("answers the retryable SERVER error when Resend refuses, and withdraws the code without logging it", async () => {
+    let code = "";
+    const { failing, logs } = await appWithResend((async (_url: string | URL | Request, init?: RequestInit) => {
+      code = codeIn(init);
+      return new Response(JSON.stringify({ name: "application_error", message: `Could not send ${code}` }), { status: 500 });
+    }) as typeof globalThis.fetch);
+    try {
+      const email = newEmail();
+      const response = await start(failing, email);
+      expect(response.statusCode).toBe(500);
+      expectResponseMatchesSpec("post", "/auth/email/start", 500, response.json());
+      expect(response.json().error).toMatchObject({ code: "SERVER", retryable: true, action: "RETRY", params: { reference: expect.any(String) } });
+      expect(code).toMatch(/^\d{6}$/);
+      expect(mentions(response.body, code)).toBe(false);
+      expect(logs()).toContain("auth.login_code_email_failed");
+      expect(logs()).toContain("Resend answered 500: application_error: Could not send [redacted]");
+      expect(mentions(logs(), code)).toBe(false);
+      expect(logs()).not.toContain(email);
+      const { rows } = await pool.query("SELECT 1 FROM login_codes WHERE email=$1", [email]);
+      expect(rows).toHaveLength(0);
+    } finally {
+      await failing.close();
+    }
+  });
+
+  it("keeps the code after a timeout, since the email may still arrive", async () => {
+    let code = "";
+    const { failing, logs } = await appWithResend((async (_url: string | URL | Request, init?: RequestInit) => {
+      code = codeIn(init);
+      throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    }) as typeof globalThis.fetch);
+    try {
+      const email = newEmail();
+      const response = await start(failing, email);
+      expect(response.statusCode).toBe(500);
+      expect(response.json().error).toMatchObject({ code: "SERVER", retryable: true });
+      expect(logs()).toContain("Resend did not answer (TimeoutError)");
+      expect(mentions(logs(), code)).toBe(false);
+      const verify = await post("/v1/auth/email/verify", { email, code });
+      expect(verify.statusCode).toBe(200);
+    } finally {
+      await failing.close();
+    }
   });
 });
 

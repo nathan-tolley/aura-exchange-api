@@ -22,7 +22,7 @@ export function hashLoginCode(email: string, code: string): string {
   return createHmac("sha256", codeKey).update(`${normalizeEmail(email)}\n${code}`).digest("hex");
 }
 
-export type IssueResult = { issued: true; code: string } | { issued: false; retryAfterSeconds: number };
+export type IssueResult = { issued: true; id: string; code: string } | { issued: false; retryAfterSeconds: number };
 
 /** Creates a fresh code for the email, superseding any earlier one, unless the email has had too many this hour. */
 export async function issueLoginCode(db: Db, email: string, ipAddress: string | null): Promise<IssueResult> {
@@ -37,11 +37,16 @@ export async function issueLoginCode(db: Db, email: string, ipAddress: string | 
   }
   const code = generateLoginCode();
   await db.query("UPDATE login_codes SET expires_at=now() WHERE email=$1 AND consumed_at IS NULL AND expires_at > now()", [address]);
-  await db.query(
-    `INSERT INTO login_codes(email,code_hash,expires_at,ip_address) VALUES ($1,$2,now() + make_interval(mins => $3),$4)`,
+  const row = await one<{ id: string }>(db,
+    `INSERT INTO login_codes(email,code_hash,expires_at,ip_address) VALUES ($1,$2,now() + make_interval(mins => $3),$4) RETURNING id`,
     [address, hashLoginCode(address, code), LOGIN_CODE_TTL_MINUTES, ipAddress]
   );
-  return { issued: true, code };
+  return { issued: true, id: row.id, code };
+}
+
+/** Removes a code that never reached its inbox, so it doesn't count against the email's hourly limit. */
+export async function withdrawLoginCode(db: Db, id: string): Promise<void> {
+  await db.query("DELETE FROM login_codes WHERE id=$1 AND consumed_at IS NULL", [id]);
 }
 
 export type CheckResult = { ok: true } | { ok: false; reason: "INVALID"; attemptsLeft: number } | { ok: false; reason: "EXPIRED" };

@@ -24,10 +24,22 @@ const schema = z.object({
   CORS_ORIGINS: z.string().default("")
     .transform((value) => value.split(",").map((item) => item.trim()).filter(Boolean))
     .refine((origins) => origins.every((origin) => URL.canParse(origin) && new URL(origin).origin === origin), "CORS_ORIGINS takes exact origins, like http://localhost:5555"),
-  TZ: z.string().default("America/New_York")
+  TZ: z.string().default("America/New_York"),
+  /** Who delivers sign-in codes: `log` prints them (development, tests), `resend` emails them. */
+  EMAIL_PROVIDER: z.enum(["log", "resend"]).default("log"),
+  RESEND_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  /** The sender, on a domain verified in Resend: `Aura Exchange <codes@example.com>`. */
+  EMAIL_FROM: z.preprocess(emptyToUndefined, z.string().optional())
 });
 
+function emptyToUndefined(value: unknown) {
+  return typeof value === "string" && value.trim() === "" ? undefined : value;
+}
+
 export const config = schema.parse(process.env);
+if (config.EMAIL_PROVIDER === "resend" && (!config.RESEND_API_KEY || !config.EMAIL_FROM)) {
+  throw new Error("EMAIL_PROVIDER=resend needs RESEND_API_KEY and EMAIL_FROM");
+}
 if (config.NODE_ENV === "production") {
   if (config.SESSION_SECRET === "development-only-session-secret-change-me") {
     throw new Error("SESSION_SECRET must be changed in production");
