@@ -341,6 +341,38 @@ Nathan's decision: fork off into a new **public** repo, `nathan-tolley/aura-exch
 4. The box deploy doesn't pull from git (`scripts/deploy.sh` ships `git archive HEAD` over SSH), so nothing changes there.
 5. CLAUDE.md, ROADMAP.md and this file: branch `main`, the new repo, no more `master` merges.
 
+### History rewrite (2026-10-28)
+
+Nathan chose to rewrite the history before the first public push, so older commits don't name the box either. `git filter-branch` replaced the SSH user, the box's other stack and its site with `<user>`, `<other-stack>` and `<other-site>` in every commit on `aura-v1` and in one commit message. Only `docs/aura/NOTES.md` and `docs/aura/PROGRESS.md` changed in any commit, and the final tree is byte-identical to before (`2b22257`). The friend's 5 commits keep their hashes, and so does every commit before the first deploy.
+
+The 21 commits from the first deploy onward got new hashes. PROGRESS.md and older notes cite the old ones:
+
+| Old | New | Commit |
+| --- | --- | --- |
+| `acfb1e5` | `aae43f1` | Log the first deploy to the box (0.7) |
+| `192fa15` | `9250987` | Route tae.app.elicit-marketing.com through the box's Caddy (0.7) |
+| `571bcc6` | `e8200a9` | The API is live at tae.app.elicit-marketing.com (0.7) |
+| `d08422b` | `8e7d214` | Bring "Waiting on Nathan" up to date after resuming |
+| `94442be` | `dfa1ce7` | Answer the app's contract requests #2-#9 (spec draft.7) |
+| `3ad9492` | `d92ae14` | Allow the app's Chrome preview to call /v1 (CORS, request #10) |
+| `a6bc026` | `0524e11` | Record that the fork is OK with karkys |
+| `702a9f2` | `17d8d62` | Log the push of aura-v1 to origin |
+| `546fe78` | `62057cd` | Plan the Phase 1 engine tick |
+| `8bd3fee` | `368c448` | Replace ambient motion with the price engine's 15 s tick (Phase 1) |
+| `87cd5e1` | `01da48d` | Log the deploy of 8bd3fee to the box |
+| `0d57583` | `3098716` | Log the push of the engine tick to origin |
+| `f703d96` | `6295db1` | Record Nathan's 2026-10-28 answers to every open question |
+| `3ed16d8` | `6082629` | Send sign-in codes through Resend (open question 8) |
+| `a7b8537` | `9655024` | Make 1.1% the engine's default base volatility (open question 12) |
+| `164835a` | `891bb80` | Record the secrets audit and what's waiting on Nathan |
+| `7bd44b1` | `8c18017` | Log the deploy of 164835a to the box |
+| `12f5a67` | `b233a12` | Record the Resend domain: securedesk.elicit-marketing.com |
+| `df99105` | `d252c52` | Log turning on Resend on the box |
+| `6590fd5` | `bd787dc` | Log that Resend sign-in emails arrive end to end |
+| `b9914de` | `7e5cf19` | Scrub the box's details from the docs before the public push |
+
+The old history is kept only on Nathan's PC, in the local branch `backup/aura-v1-before-rewrite`, which is never pushed. The box's `REVISION` file still says `164835a` (old) until the next deploy.
+
 ## Plumbing choices
 
 Plumbing decisions that are mine to make. Game rules go to `DECISIONS.md` instead.

@@ -4,11 +4,10 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 
 ## Now
 - Step: the repo move to `nathan-tolley/aura-exchange-api` (NOTES.md → Plan for the repo move). Then Phase 1 from market hours to realtime.
-- State: the current docs are scrubbed of the box's SSH user, its other stack and that stack's site (Nathan's call, 2026-10-28); the details moved to the gitignored `box-notes.local`. Older commits still contain them.
-- Next action: Nathan decides whether to push the history as it is or rewrite it first, then create the repo and push `aura-v1` as `main`.
+- State: history rewritten without the box details (NOTES.md → History rewrite; the old → new hash map is there). The old history is only in the local branch `backup/aura-v1-before-rewrite`, never pushed.
+- Next action: `gh repo create nathan-tolley/aura-exchange-api --public`, push `aura-v1` as `main`, rewire the remotes, then delete `aura-v1` from the friend's repo.
 - Uncommitted work: none
 - Waiting on Nathan:
-  - Older commits (before this scrub) still name the box's SSH user, its other stack and that stack's site. Push the history as it is, or rewrite those files in history first (every commit hash changes; nothing is force-pushed, because the new repo is empty)?
   - Sign in from the app's dev build against the live URL (Gate 0, part 2). His first try never reached the box: no `/v1/auth/email/start` in the log, so that client points elsewhere (the Prism mock or a local server?).
 
 ## Log
@@ -59,3 +58,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-28 · Resend · Nathan put `RESEND_API_KEY` in the box's `.env`. Added `EMAIL_PROVIDER=resend` and `EMAIL_FROM` (backup `.env.before-resend`), recreated app and worker: 0 restarts, the app sees all three, `pnpm smoke` passes. Waiting for Nathan's test sign-in.
 - 2026-10-28 · Resend · Works end to end. Nathan's first try never reached the box (no request in the log). `POST /v1/auth/email/start` for his address on the live URL answered 204 with no failure logged, and the email from `codes@securedesk.elicit-marketing.com` landed in his Gmail inbox, not spam.
 - 2026-10-28 · repo move · Nathan: scrub the box details from the docs before the public push, keep the commit email. NOTES.md and PROGRESS.md now name no SSH user, other stack or site; the details are in the gitignored `box-notes.local`.
+- 2026-10-28 · repo move · With Nathan's OK: rewrote `aura-v1` so no commit names the box (`git filter-branch`; only NOTES.md and PROGRESS.md changed in any commit; final tree identical, `2b22257`). 21 commits got new hashes, mapped in NOTES.md → History rewrite. Old history kept locally as `backup/aura-v1-before-rewrite`.
