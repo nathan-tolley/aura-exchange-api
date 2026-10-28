@@ -3,14 +3,12 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: Resend for sign-in codes (Nathan's top priority, 2026-10-28). Then: move to `nathan-tolley/aura-exchange-api`, then Phase 1 from market hours to realtime.
-- State: blocked on Nathan. The box runs `164835a` (Resend code in log mode, base vol 1.1%). Secrets audit done: clean (NOTES.md → Plan for the repo move).
-- Next action, once Nathan answers:
-  1. With his key in `~/aura-exchange/.env`: add `EMAIL_PROVIDER=resend` and `EMAIL_FROM=Aura Exchange <codes@securedesk.elicit-marketing.com>`, `docker compose up -d app worker` (with `COMPOSE_FILE=compose.yaml:compose.box.yaml`), then he signs in with his own email.
-  2. The repo move (NOTES.md → Plan for the repo move), then Phase 1 → market hours.
+- Step: Resend for sign-in codes: confirm end to end. Then: move to `nathan-tolley/aura-exchange-api`, then Phase 1 from market hours to realtime.
+- State: Resend is on, on the box: `EMAIL_PROVIDER=resend`, `EMAIL_FROM=Aura Exchange <codes@securedesk.elicit-marketing.com>`, Nathan's key (old `.env` kept as `.env.before-resend`). Waiting for Nathan to sign in with his own email.
+- Next action: when he's tried, check `docker logs aura-exchange-app-1 | grep auth.login_code_email_failed` on the box. A Resend refusal says why (e.g. the from domain), without the code. Then the repo move, once he OKs the public docs.
 - Uncommitted work: none
 - Waiting on Nathan:
-  - A yes once `RESEND_API_KEY=…` is in `~/aura-exchange/.env` on the box (not there at 2026-10-28 20:50 UTC). The domain is `securedesk.elicit-marketing.com`; the sender will be `Aura Exchange <codes@securedesk.elicit-marketing.com>`.
+  - Sign in with his own email (the app's dev build, or `POST /v1/auth/email/start`) and say whether the code arrived.
   - Public repo: OK to publish the docs that name the SSH user `<user>`, `~/<other-stack>/deploy` and `<other-site>`, and the 46 commits authored with `nathantolley2008@gmail.com`? Or scrub first?
   - Sign in from the app's dev build against the live URL (Gate 0, part 2).
 
@@ -59,3 +57,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-28 · open question 12 · 1.1% is the engine's default base daily volatility (`DEFAULT_ENGINE_PARAMS`); the simulator drops its override. 203 tests green.
 - 2026-10-28 · repo move · Secrets audit of all 51 `aura-v1` commits and the tree: nothing real ever committed; the box's IP is only in the gitignored `deploy.local`. NOTES.md and PROGRESS.md name the SSH user, the box's other stack and its site; 46 commits carry Nathan's Gmail. Asked Nathan. Deploy of `a7b8537` refused by the permission classifier (DB backed up first; box still on `8bd3fee`).
 - 2026-10-28 · deploy · With Nathan's OK (he allowed the deploy script): deployed `164835a` (Resend in log mode, base vol 1.1%) after a `pg_dump` to `~/aura-exchange-backups/before-a7b8537-20261028T203830Z.sql.gz`. No migrations. App and worker up, 0 restarts, no errors; `pnpm smoke` passes; `<other-site>` still 200.
+- 2026-10-28 · Resend · Nathan put `RESEND_API_KEY` in the box's `.env`. Added `EMAIL_PROVIDER=resend` and `EMAIL_FROM` (backup `.env.before-resend`), recreated app and worker: 0 restarts, the app sees all three, `pnpm smoke` passes. Waiting for Nathan's test sign-in.
