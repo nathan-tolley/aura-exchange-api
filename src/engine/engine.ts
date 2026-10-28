@@ -47,7 +47,8 @@ export const DEFAULT_ENGINE_PARAMS: EngineParams = {
   gapMin: 0.4,
   gapMax: 1.2,
   driftSeconds: 45 * 60,
-  baseDailyVol: 0.02,
+  // The plan said 2%; 1.1% lands the simulator near 60/25/15 (DECISIONS.md open question 12, agreed 2026-10-28).
+  baseDailyVol: 0.011,
   noiseDf: 4,
   volSpikeMax: 3,
   volHalfLifeSeconds: 2 * HOUR,

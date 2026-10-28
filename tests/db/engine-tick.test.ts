@@ -94,8 +94,8 @@ describe("the engine tick", () => {
     const row = await poolOf(listings[0]!);
     expect(row.engine_hype).toBeCloseTo(0.1 * 0.5 ** ((5 * 3600 + 60) / (3 * 24 * 3600)), 12);
     const { rows } = await pool.query("SELECT detail FROM market_price_ticks WHERE stock_id=$1 AND cause='ENGINE'", [listings[0]]);
-    // A minute of noise at 2% a 19-hour day is a few hundredths of a percent, not five hours' worth.
-    expect(Math.abs(rows[0].detail.noise)).toBeLessThan(0.02 * Math.sqrt(60 / (19 * 3600)) * 10);
+    // A minute of noise at 1.1% a 19-hour day is a few hundredths of a percent, not five hours' worth.
+    expect(Math.abs(rows[0].detail.noise)).toBeLessThan(0.011 * Math.sqrt(60 / (19 * 3600)) * 10);
   });
 
   it("leaves halted and delisted pools alone", async () => {

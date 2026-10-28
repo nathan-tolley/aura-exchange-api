@@ -86,7 +86,7 @@ Work top to bottom. Tick a box only when its check passes and `pnpm check` is gr
     - Candles come from a trigger on every tick insert, so they're never behind.
     - The 7-day purge covers engine ticks only; trade and IPO ticks stay.
     - The tick waits until trading has opened (3 listed).
-    - Base vol is still 2% (open question 12).
+    - Base vol was 2% until 2026-10-28, when Nathan agreed to 1.1% (open question 12); it's the engine default now.
 - [ ] **Market hours** per exchange timezone: queue rulings while CLOSED and apply them as one opening gap at pre-market.
 - [ ] **Halts**: single-stock limit up/down (10% in 5 minutes → 5-minute halt), news halts, the market-wide breaker (−7% → 15 min; −20% → closed until the next open).
 - [ ] **Event pipeline**:

@@ -526,7 +526,7 @@ What that says:
 
 Two changes from the plan's starting numbers, both now the simulator's defaults (`DEFAULT_SIM_CONFIG`):
 
-1. **Base daily volatility 2% → 1.1%** (personality 0.5–2.0 unchanged). This is a game rule, so it's DECISIONS.md open question 12. Until Nathan agrees, the engine's own default (`DEFAULT_ENGINE_PARAMS`) stays at the plan's 2% and only the simulator uses 1.1%. The engine isn't in the worker yet (Phase 1), so nothing live changes either way.
+1. **Base daily volatility 2% → 1.1%** (personality 0.5–2.0 unchanged). This is a game rule, so it was DECISIONS.md open question 12. Nathan agreed on 2026-10-28, so 1.1% is now the engine's own default (`DEFAULT_ENGINE_PARAMS`), and the simulator just uses it. Replay the plan's numbers with `pnpm sim --set engine.baseDailyVol=0.02`.
 2. **Simulated players bet 5–20% of their equity per trade** (was 3–12%). That's an assumption about play, not a rule: with play money and a pool sized so a full balance moves price 5%, 5–20% is, if anything, cautious.
 
 Everything else stays at the plan's numbers. Full 8-week seasons, 8 listings, daily Σ|Δ| shares:

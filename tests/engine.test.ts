@@ -133,7 +133,7 @@ describe("price engine", () => {
     expect(gapAfter(ticked)).toBeCloseTo(Math.log(1.1) / 2, 5);
   });
 
-  it("scales noise to 2% a trading day times personality", () => {
+  it("scales noise to the 1.1% base daily vol times personality", () => {
     const rng = seededRng("noise");
     const state = ipoListing(4000, 400000, 1.5);
     const fixedFair = { ...DEFAULT_ENGINE_PARAMS, reversionHalfLifeDays: Infinity, quietDecay: null };
@@ -143,8 +143,9 @@ describe("price engine", () => {
       const { move } = tick(state, { elapsedSeconds: 0, tradingSeconds: DEFAULT_ENGINE_PARAMS.tradingDaySeconds }, rng, fixedFair);
       sumSquares += move.noise ** 2;
     }
-    expect(Math.sqrt(sumSquares / days)).toBeGreaterThan(0.03 * 0.95);
-    expect(Math.sqrt(sumSquares / days)).toBeLessThan(0.03 * 1.05);
+    expect(DEFAULT_ENGINE_PARAMS.baseDailyVol).toBe(0.011);
+    expect(Math.sqrt(sumSquares / days)).toBeGreaterThan(0.011 * 1.5 * 0.95);
+    expect(Math.sqrt(sumSquares / days)).toBeLessThan(0.011 * 1.5 * 1.05);
   });
 
   it("bleeds fair value 0.5% a day after 3 quiet days, capped at 5%, until the next ruling", () => {
