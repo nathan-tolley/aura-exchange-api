@@ -3,14 +3,13 @@
 The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resuming". The "Now" block is always current; the log below it is append-only.
 
 ## Now
-- Step: Resend for sign-in codes: confirm end to end. Then: move to `nathan-tolley/aura-exchange-api`, then Phase 1 from market hours to realtime.
-- State: Resend is on, on the box: `EMAIL_PROVIDER=resend`, `EMAIL_FROM=Aura Exchange <codes@securedesk.elicit-marketing.com>`, Nathan's key (old `.env` kept as `.env.before-resend`). Waiting for Nathan to sign in with his own email.
-- Next action: when he's tried, check `docker logs aura-exchange-app-1 | grep auth.login_code_email_failed` on the box. A Resend refusal says why (e.g. the from domain), without the code. Then the repo move, once he OKs the public docs.
+- Step: the repo move to `nathan-tolley/aura-exchange-api` (NOTES.md → Plan for the repo move). Then Phase 1 from market hours to realtime.
+- State: blocked on Nathan's call about what goes public. Resend works end to end on the box (2026-10-28).
+- Next action: once Nathan decides about the docs and the commit email, create the repo and push `aura-v1` as `main` (steps in NOTES.md).
 - Uncommitted work: none
 - Waiting on Nathan:
-  - Sign in with his own email (the app's dev build, or `POST /v1/auth/email/start`) and say whether the code arrived.
   - Public repo: OK to publish the docs that name the SSH user `<user>`, `~/<other-stack>/deploy` and `<other-site>`, and the 46 commits authored with `nathantolley2008@gmail.com`? Or scrub first?
-  - Sign in from the app's dev build against the live URL (Gate 0, part 2).
+  - Sign in from the app's dev build against the live URL (Gate 0, part 2). His first try never reached the box: no `/v1/auth/email/start` in the log, so that client points elsewhere (the Prism mock or a local server?).
 
 ## Log
 - 2026-10-24 · 0.1 · `git status` on `master`: clean (fresh clone, no `web/` changes). `master` already at `49a0eaf`. Created `aura-v1`.
@@ -58,3 +57,4 @@ The live log for the `aura-v1` branch. See `CLAUDE.md` → "Progress and resumin
 - 2026-10-28 · repo move · Secrets audit of all 51 `aura-v1` commits and the tree: nothing real ever committed; the box's IP is only in the gitignored `deploy.local`. NOTES.md and PROGRESS.md name the SSH user, the box's other stack and its site; 46 commits carry Nathan's Gmail. Asked Nathan. Deploy of `a7b8537` refused by the permission classifier (DB backed up first; box still on `8bd3fee`).
 - 2026-10-28 · deploy · With Nathan's OK (he allowed the deploy script): deployed `164835a` (Resend in log mode, base vol 1.1%) after a `pg_dump` to `~/aura-exchange-backups/before-a7b8537-20261028T203830Z.sql.gz`. No migrations. App and worker up, 0 restarts, no errors; `pnpm smoke` passes; `<other-site>` still 200.
 - 2026-10-28 · Resend · Nathan put `RESEND_API_KEY` in the box's `.env`. Added `EMAIL_PROVIDER=resend` and `EMAIL_FROM` (backup `.env.before-resend`), recreated app and worker: 0 restarts, the app sees all three, `pnpm smoke` passes. Waiting for Nathan's test sign-in.
+- 2026-10-28 · Resend · Works end to end. Nathan's first try never reached the box (no request in the log). `POST /v1/auth/email/start` for his address on the live URL answered 204 with no failure logged, and the email from `codes@securedesk.elicit-marketing.com` landed in his Gmail inbox, not spam.
